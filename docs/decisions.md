@@ -1,0 +1,114 @@
+# Decision log
+
+One entry per real decision: the context, the options, the choice, why, and what would change it. New entries go at the end. When a decision is replaced, its entry is marked as superseded rather than deleted.
+
+## D1. Python 3.13, managed with uv
+
+*Decided Oct 13, 2026; version settled Oct 14.*
+
+- **Context:** The analyzers (`ast`, ruff, bandit) are Python tools. Development happens on native Windows, and CI runs on Linux and Windows.
+- **Options:** pip with venv and a requirements.txt; Poetry; uv. Python 3.12 or 3.13.
+- **Choice:** Python 3.13, managed with uv. Dependencies are declared in `pyproject.toml` and locked to exact versions in `uv.lock`. There is no requirements.txt.
+- **Why:** Python is my strongest language, and `ast` ships with it. uv installs Python itself, writes one lockfile that covers every OS, and behaves the same in PowerShell and in CI. 3.13 was already installed and every dependency supports it. A hand-written requirements.txt would be a third list of dependencies that nothing checks.
+- **Would change if:** a needed dependency dropped 3.13 support. Reviewers without uv get a pip or Docker path on Day 6.
+
+## D2. A command-line interface built with Typer
+
+*Decided Oct 13, 2026.*
+
+- **Context:** devassist is a developer tool that takes a snippet and returns documentation and suggested improvements.
+- **Options:** a CLI (argparse, Click or Typer); a web UI (Streamlit); an editor plugin.
+- **Choice:** a Typer CLI. A Streamlit front end only if time allows, and an MCP server as a stretch.
+- **Why:** A CLI fits how developers already work: files, pipes, scripts and CI. Typer builds the interface from type-hinted functions, so arguments are validated and `--help` is generated. `cli.py` stays a thin adapter, so another front end can reuse the core unchanged.
+- **Would change if:** the users weren't developers comfortable in a terminal.
+
+## D3. Orchestration with a LangGraph graph
+
+*Decided Oct 13, 2026.*
+
+- **Context:** The workflow mixes fixed steps (validate, static checks, verify) with model steps (draft, refine) and branches (pass, refine, escalate, give up), capped at 3 rounds.
+- **Options:** a plain Python loop; LangChain's `create_agent`; the Claude Agent SDK; a LangGraph `StateGraph`.
+- **Choice:** LangGraph, isolated in `agent.py` and built by one `build_graph()` factory that receives the LLM client, analyzers and settings as arguments.
+- **Why:** The graph makes the routing explicit, so each route can be tested on its own. It streams each step for `--trace` and draws its own diagram for the README. Agent frameworks such as `create_agent` and the Claude Agent SDK let the model decide which tools to call, but here the checks must run every time. The Agent SDK's strength is running commands and editing files, which this tool must never do with submitted code. A plain loop would work, but the branching would hide in if-statements, and tracing and the diagram would have to be built by hand.
+- **Would change if:** the workflow became a straight line with no branches. A plain function would then be simpler.
+
+## D4. Frameworks used and skipped
+
+*Decided Oct 13, 2026.*
+
+- **Context:** The LangChain ecosystem offers orchestration, chat-model wrappers and tracing, and each adds a layer to learn and debug.
+- **Options:** the full LangChain stack; LangGraph alone; no frameworks.
+- **Choice:** LangGraph for orchestration only. No LangChain chat-model wrappers: the Anthropic SDK is called directly behind the `LLMClient` protocol. LangSmith tracing is opt-in. An MCP server is a stretch goal.
+- **Why:** Each tool is used only where it earns its place. Calling the SDK directly gives native structured output (`messages.parse()`) and exact token counts for the cost metrics, with one less layer to debug. Tracing sends snippets to a third party, so it runs only when `LANGSMITH_TRACING=true` and a key are set, and the tests clear those variables.
+- **Would change if:** many providers had to be supported quickly. A LangChain adapter could then save time.
+
+## D5. Static verification only
+
+*Decided Oct 13, 2026.*
+
+- **Context:** Every suggested fix is checked before the user sees it, and snippets are untrusted input.
+- **Options:** run the code or its tests in a sandbox; static analysis only.
+- **Choice:** static checks only: `ast` (does it parse?), ruff (lint) and bandit (security). Submitted code is never executed, imported or passed to `eval`. Analyzers run as subprocesses with argument lists, timeouts and temporary files, never `shell=True`.
+- **Why:** Running untrusted code safely needs real isolation (containers, resource limits, no network), which is a project of its own. Static checks catch syntax errors, common bugs and insecure patterns with no execution risk.
+- **Would change if:** behavior had to be verified, for example whether a fix still passes the snippet's tests. Sandboxed execution would then be worth its cost.
+
+## D6. Structured output, validated, one retry
+
+*Decided Oct 13, 2026.*
+
+- **Context:** The model's answer feeds code: the verify node, the Markdown and JSON renderers, and the eval's scoring.
+- **Options:** free text; JSON parsed by hand; the provider's structured output plus Pydantic validation.
+- **Choice:** request structured output with `client.messages.parse()` and the Pydantic model, then validate with Pydantic anyway. On a validation failure, retry once with the error fed back, then raise `SchemaValidationError`. Schemas stay flat.
+- **Why:** A typed result is testable and renders the same way every time. Feeding the error back usually fixes a near miss, and capping retries at one bounds cost and latency.
+- **Would change if:** the eval shows fewer than 95% of responses valid on the first try.
+
+## D7. Anthropic as the only provider, behind a protocol
+
+*Decided Oct 13, 2026; narrowed to Anthropic only on Oct 14.*
+
+- **Context:** The original plan added OpenAI and Google clients for a rival comparison in the eval.
+- **Options:** three providers; Anthropic only; several providers through one LangChain adapter.
+- **Choice:** Anthropic only. Every model call goes through the `LLMClient` protocol, and `FakeLLMClient` implements it for tests.
+- **Why:** The protocol is what lets every test run offline against a fake client. It also means adding a provider later is one new client class, not a change to the graph. The other providers were cut for time (D9).
+- **Would change if:** the eval reopens the model choice, or cross-provider evidence becomes necessary.
+
+## D8. Claude Haiku 5.5, with Claude Sonnet 5.5 as the round-3 fallback
+
+*Decided Oct 13, 2026.*
+
+- **Context:** Each run makes one to three model calls, so cost and latency add up at scale.
+- **Options:** Haiku alone; Sonnet alone; Haiku with escalation to Sonnet; a larger model.
+- **Choice:** `claude-haiku-5-5` for rounds 1 and 2, and `claude-sonnet-5-5` in round 3 only. Both models and the escalation round are settings.
+- **Why:** Haiku costs a twentieth of Sonnet per token at list price ($0.10 and $0.50 per million input and output tokens, against $2.00 and $10.00, checked Oct 13, 2026). Most snippets should pass within two Haiku rounds, and Sonnet catches the hard cases.
+- **Would change if:** the design misses the bar below. The first change to try is escalating in round 2.
+- **The bar:** to be written here on Day 4, before any eval results exist.
+
+## D9. The eval compares three configurations, with no rival models
+
+*Decided Oct 14, 2026.*
+
+- **Context:** The plan also compared the design against GPT-6 Luna and Gemini 3.5 Flash-Lite.
+- **Options:** two rivals; one rival; none.
+- **Choice:** none. The eval compares the shipped design, Haiku alone and Sonnet alone.
+- **Why:** Two more clients, API keys and billing setups didn't fit the six-day schedule. The three configurations still answer the core question: what the fallback saves compared with Sonnet alone, and what it costs compared with Haiku alone. The README compares rivals by list price only, labeled as not measured.
+- **Would change if:** time allows after submission, or a reviewer needs cross-provider evidence. GPT-6 Luna would come first, since it is priced the same as Haiku.
+
+## D10. One pull request per task, merged only on green CI
+
+*Decided Oct 13, 2026.*
+
+- **Context:** This private repo is on GitHub's free plan, which has no branch protection.
+- **Options:** commit straight to `main`; pull requests by habit alone; pull requests with a local hook and CI.
+- **Choice:** one branch and one pull request per task, Conventional Commit messages, and merge commits that keep each pull request visible in the history. Merge only after CI passes on Linux and Windows. The `no-commit-to-branch` pre-commit hook refuses commits to `main`.
+- **Why:** Small changes are easy to review and easy to revert. The history shows every change went through a pull request. CI runs on both operating systems because development happens on Windows and most servers run Linux.
+- **Would change if:** the repo moved to a paid plan or a team organization, where real branch protection with required checks and reviews would replace the hook.
+
+## D11. Pre-commit hooks run the project's own tools through uv
+
+*Decided Oct 15, 2026.*
+
+- **Context:** Hooks for ruff and mypy can use pre-commit's own isolated copies of each tool or the versions installed in the project.
+- **Options:** the published hook repositories (ruff-pre-commit, mirrors-mypy); local hooks that call `uv run`.
+- **Choice:** local hooks for `ruff check --fix`, `ruff format` and `mypy src`, all through `uv run`. `no-commit-to-branch` and gitleaks come from their published repositories, pinned to exact versions.
+- **Why:** The hooks then use the exact versions in `uv.lock`, the same ones CI uses, so the two can't disagree. pre-commit's isolated mypy can't see the project's dependencies, such as Pydantic, and would report false errors. pytest stays out of the hooks to keep commits fast; CI runs the tests.
+- **Would change if:** the hooks became slow enough to get in the way. mypy would then run in CI only.
