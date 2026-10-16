@@ -15,3 +15,11 @@ class ConfigError(DevassistError):
 
 class MissingAPIKeyError(ConfigError):
     """No Anthropic API key is configured."""
+
+
+class LLMError(DevassistError):
+    """A model call failed: an API error, a timeout, a refusal or an unusable answer."""
+
+
+class SchemaValidationError(LLMError):
+    """The model's answer didn't match the output schema, even after a retry."""
