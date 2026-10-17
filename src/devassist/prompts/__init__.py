@@ -97,3 +97,16 @@ def refine_prompt(
         previous_code=_code_block(previous.improved_code, "previous_code"),
         problems=_escape_closing_tag(problem_lines, "problems"),
     )
+
+
+def retry_prompt(errors: Sequence[str]) -> str:
+    """Return the follow-up prompt sent when an answer fails validation.
+
+    Args:
+        errors: One line per validation error, such as ``summary: must not be empty``.
+
+    Returns:
+        The user prompt, with the errors listed in their tags.
+    """
+    error_lines = "\n".join(f"- {error}" for error in errors)
+    return Template(_read("retry")).substitute(errors=_escape_closing_tag(error_lines, "errors"))
