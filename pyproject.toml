@@ -8,8 +8,10 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "bandit>=1.9.4",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
+    "ruff>=0.17.1",
 ]
 
 [project.scripts]
@@ -25,7 +27,6 @@ dev = [
     "pre-commit>=4.7.0",
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "ruff>=0.17.0",
 ]
 
 [tool.ruff]

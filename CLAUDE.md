@@ -60,7 +60,7 @@ Target layout; some modules don't exist yet.
 - Development happens on native Windows and CI runs on both Linux and Windows, so code must work on both.
 - Use `pathlib.Path` for every path; never build paths from strings or hard-coded separators.
 - Pass `encoding="utf-8"` to every `open()`, `Path.read_text()`, `Path.write_text()` and text-mode `subprocess.run()`. Python on Windows doesn't default to UTF-8.
-- Run analyzers as `[sys.executable, "-m", "ruff", ...]` and `[sys.executable, "-m", "bandit", ...]`, so they resolve inside the project environment on any OS.
+- Run analyzers as `[sys.executable, "-I", "-m", "ruff", ...]` and `[sys.executable, "-I", "-m", "bandit", ...]`, with the temporary folder as the working directory, so they resolve inside the project environment on any OS. `-I` stops Python from importing modules from the current folder, so a stray `ruff.py` can't run in place of ruff. All of this lives in `analyzers/base.py`'s `run_tool`.
 - Write snippets for analysis to a file inside `tempfile.TemporaryDirectory()`. Never hand an open `NamedTemporaryFile` to a subprocess: Windows won't let another process open it.
 - Line endings are LF everywhere, enforced by `.gitattributes`.
 - Scripts and docs use `uv run ...` rather than shell-specific syntax, so they work in PowerShell.
