@@ -9,6 +9,10 @@ class DevassistError(Exception):
     """Base class for every error devassist raises on purpose."""
 
 
+class InputError(DevassistError):
+    """The snippet can't be read, or can't be reviewed: empty, too long or not Python."""
+
+
 class ConfigError(DevassistError):
     """A setting is missing or invalid."""
 

@@ -1,8 +1,9 @@
-import pytest
+from importlib.metadata import entry_points
 
-import devassist
+from devassist.cli import app
 
 
-def test_main_prints_greeting(capsys: pytest.CaptureFixture[str]) -> None:
-    devassist.main()
-    assert "devassist" in capsys.readouterr().out
+def test_the_devassist_command_runs_the_cli() -> None:
+    (command,) = entry_points(group="console_scripts", name="devassist")
+
+    assert command.load() is app
