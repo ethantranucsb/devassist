@@ -54,7 +54,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D6. Structured output, validated, one retry
 
-*Decided Oct 13, 2026.*
+*Decided Oct 13, 2026. Amended by D14: requests use `messages.create()` with the same schema, not `messages.parse()`.*
 
 - **Context:** The model's answer feeds code: the verify node, the Markdown and JSON renderers, and the eval's scoring.
 - **Options:** free text; JSON parsed by hand; the provider's structured output plus Pydantic validation.
@@ -136,3 +136,13 @@ One entry per real decision: the context, the options, the choice, why, and what
   - The graph's step limit is exactly what the longest run needs, `2 × max_rounds + 4` steps.
 - **Why:** Bad input is the user's to fix, so it's an expected result with a message, not a crash. A failed model call leaves nothing useful to show, and raising keeps the error's type for the CLI. Hiding a rewrite that nearly passed would waste the work; showing it with its problems lets the user judge. LangGraph's default step limit is 10,007, so a routing bug could make thousands of paid model calls before stopping; the exact limit stops it within one run's worth.
 - **Would change if:** users preferred no rewrite over a flagged one. `finalize` would then return the original code instead.
+
+## D14. Structured output through `messages.create()`, validated by devassist
+
+*Decided Oct 16, 2026. Amends D6.*
+
+- **Context:** D6 planned to call `messages.parse()`. The SDK's source (anthropic 1.15.0) shows that `parse()` validates the answer inside the SDK as soon as the response arrives, and raises `pydantic.ValidationError` on a failure, discarding the response.
+- **Options:** call `parse()` and catch the error; call `create()` with the same schema and validate in devassist; force the JSON shape through tool use.
+- **Choice:** `messages.create()` with `output_config.format` set to the schema that `anthropic.transform_schema(Analysis)` builds, so the API still constrains the answer to the schema. devassist then checks `stop_reason` (anything but `end_turn` is an error) and validates with `Analysis.model_validate_json`.
+- **Why:** With `parse()`, a refusal or a cut-off answer isn't valid JSON, so it would surface as a schema failure and trigger a paid retry that can't help. The retry D6 requires also sends the bad answer back to the model, and `parse()` throws that answer away. `create()` keeps schema-constrained output and gives devassist the stop reason and the raw text.
+- **Would change if:** a later SDK's `parse()` returned the raw response along with a validation failure.

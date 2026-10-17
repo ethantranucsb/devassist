@@ -9,7 +9,7 @@ All commands run the same in PowerShell and Git Bash.
 - Install or sync dependencies: `uv sync`
 - Run the tool: `uv run devassist explain path/to/file.py` (or pipe code on stdin); add `--trace` to stream each graph step
 - Tests (offline, no API key needed): `uv run pytest`
-- Live API tests (need `ANTHROPIC_API_KEY`): `uv run pytest -m live`
+- Live API tests (need `ANTHROPIC_API_KEY`): `uv run pytest -m live --no-cov` (a few tests can't reach the coverage bar on their own)
 - Lint: `uv run ruff check .`
 - Format: `uv run ruff format .`
 - Types: `uv run mypy src`
@@ -71,7 +71,7 @@ Target layout; some modules don't exist yet.
 - Provider: Anthropic only. OpenAI and Google were cut for time, as `docs/decisions.md` records; don't add another provider's SDK or client without updating that entry.
 - Default model: `claude-haiku-5-5` (`DEVASSIST_MODEL` or `--model`). Fallback model: `claude-sonnet-5-5` (`DEVASSIST_FALLBACK_MODEL`), used only in round 3. Log every escalation. The eval runner uses these overrides to compare three configurations: the shipped design, Haiku alone and Sonnet alone.
 - Haiku with a Sonnet fallback is a recorded decision in `docs/decisions.md`. Don't change either model without updating that entry.
-- Request structured output with `client.messages.parse()` and the Pydantic output model, then validate with Pydantic anyway. Treat `stop_reason` values `refusal` and `max_tokens` as errors.
+- Request structured output with `client.messages.create()` and `output_config`, using the schema `anthropic.transform_schema()` builds from the Pydantic output model. Check `stop_reason` first: anything but `end_turn` is an error. Then validate with Pydantic. Don't use `messages.parse()`: it validates inside the SDK before the stop reason can be checked, and it discards the answer the retry needs (`docs/decisions.md` D14).
 - On a validation failure, retry once with the error message fed back, then raise `SchemaValidationError`.
 - Keep output schemas flat: few optional fields, few union types. Compare enum values case-insensitively.
 - Set an explicit timeout and retry limit on every SDK client.

@@ -14,6 +14,11 @@ ESCALATION_ROUND = 3  # the first round that uses the fallback model
 MAX_SNIPPET_CHARS = 20_000  # about 500 lines of code
 SUPPORTED_LANGUAGE = "python"
 
+# Anthropic API
+LLM_TIMEOUT_SECONDS = 120.0  # per request; the SDK's default is 10 minutes
+LLM_MAX_RETRIES = 2  # SDK retries for rate limits, server errors and dropped connections
+MAX_OUTPUT_TOKENS = 16_000  # docs plus a rewrite of the largest snippet allowed
+
 # Static analyzers
 ANALYZER_TIMEOUT_SECONDS = 30.0
 RUFF_TARGET_VERSION = "py313"

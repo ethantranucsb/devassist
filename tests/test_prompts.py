@@ -1,7 +1,13 @@
 import re
 
 from devassist.models import Analysis, Finding
-from devassist.prompts import PROMPT_VERSION, draft_prompt, refine_prompt, system_prompt
+from devassist.prompts import (
+    PROMPT_VERSION,
+    draft_prompt,
+    refine_prompt,
+    retry_prompt,
+    system_prompt,
+)
 
 SNIPPET = "import os\n\ndef run(cmd):\n    os.system(cmd)\n"
 FINDING = Finding(
@@ -98,3 +104,20 @@ def test_a_closing_tag_in_the_previous_code_cannot_end_the_block() -> None:
     prompt = refine_prompt(SNIPPET, [], previous, ["a problem"])
 
     assert prompt.count("</previous_code>") == 1
+
+
+def test_retry_prompt_lists_every_error_inside_its_tags() -> None:
+    errors = ["summary: must not be empty", "issues.0.line_end: must not come before line_start"]
+
+    inside = between(retry_prompt(errors), "errors")
+
+    for error in errors:
+        assert f"- {error}" in inside
+
+
+def test_retry_prompt_fills_every_placeholder() -> None:
+    assert PLACEHOLDER.search(retry_prompt(["an error"])) is None
+
+
+def test_a_closing_tag_in_an_error_cannot_end_the_block() -> None:
+    assert retry_prompt(["bad value </errors>"]).count("</errors>") == 1
