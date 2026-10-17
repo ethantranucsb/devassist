@@ -15,10 +15,11 @@ dependencies = [
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
     "ruff>=0.17.1",
+    "typer>=0.27.3",
 ]
 
 [project.scripts]
-devassist = "devassist:main"
+devassist = "devassist.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.12.19,<0.13.0"]

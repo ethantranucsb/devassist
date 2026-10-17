@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from devassist!")
+"""devassist: documents and reviews Python snippets, checking every suggestion."""
