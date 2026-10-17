@@ -126,16 +126,56 @@ def test_windows_line_endings_on_stdin_become_plain_newlines() -> None:
     assert "2 |     return a+b" in llm.requests[0].prompt
 
 
-def test_json_output_has_the_analysis_and_the_warnings() -> None:
+def test_json_output_has_the_analysis_warnings_and_metrics() -> None:
     app, _ = fake_app(answer(issues=[ISSUE]))
 
     result = runner.invoke(app, ["explain", write_snippet(), "--format", "json"])
 
     assert result.exit_code == ExitCode.OK
-    assert json.loads(result.stdout) == {
-        "analysis": answer(issues=[ISSUE]).model_dump(mode="json"),
-        "warnings": [],
-    }
+    report = json.loads(result.stdout)
+    assert set(report) == {"analysis", "warnings", "metrics"}
+    assert report["analysis"] == answer(issues=[ISSUE]).model_dump(mode="json")
+    assert report["warnings"] == []
+    assert report["metrics"]["rounds"] == 1
+    assert report["metrics"]["cost_usd"] == pytest.approx(0.000035)
+
+
+def test_json_mode_prints_no_metrics_line() -> None:
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--format", "json"])
+
+    assert "tokens" not in result.stderr
+
+
+# Haiku's price for the fake client's 100 input and 50 output tokens: $0.000035.
+
+
+def test_markdown_mode_prints_a_metrics_line_on_stderr() -> None:
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert result.stderr.startswith("1 round | 100 in / 50 out tokens | $0.000035 | ")
+    assert result.stderr.rstrip().endswith(" s")
+    assert "tokens" not in result.stdout
+
+
+def test_the_metrics_line_counts_rounds_and_escalations() -> None:
+    app, _ = fake_app(answer(BAD_CODE), answer(BAD_CODE), answer())
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    # Two Haiku rounds at $0.000035 each, then Sonnet's price for the same tokens: $0.0007.
+    assert "3 rounds (1 escalation) | 300 in / 150 out tokens | $0.00077 | " in result.stderr
+
+
+def test_a_model_without_a_price_shows_the_cost_as_unknown() -> None:
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--model", "claude-test"])
+
+    assert "cost unknown (no price for claude-test)" in result.stderr
 
 
 def test_the_model_flag_beats_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:

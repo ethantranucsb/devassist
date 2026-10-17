@@ -8,7 +8,8 @@ they change.
 """
 
 import logging
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from functools import partial
 
 from langgraph.graph import END, START, StateGraph
@@ -17,6 +18,7 @@ from langgraph.graph.state import CompiledStateGraph
 from devassist.analyzers import Analyzer
 from devassist.config import SUPPORTED_LANGUAGE, Settings
 from devassist.llm import LLMClient, LLMRequest
+from devassist.metrics import summarize
 from devassist.models import Attempt, Finding, GraphState
 from devassist.prompts import draft_prompt, refine_prompt, system_prompt
 from devassist.verify import verification_problems
@@ -50,7 +52,8 @@ def model_for_round(round_number: int, settings: Settings) -> str:
 def _ask_model(round_number: int, prompt: str, llm: LLMClient, settings: Settings) -> Attempt:
     """Send one round's prompt to that round's model and record the answer."""
     model = model_for_round(round_number, settings)
-    if model != settings.model:
+    escalated = model != settings.model
+    if escalated:
         logger.info("Round %d: escalating from %s to %s", round_number, settings.model, model)
     result = llm.generate(LLMRequest(model=model, system=system_prompt(), prompt=prompt))
     return Attempt(
@@ -59,6 +62,7 @@ def _ask_model(round_number: int, prompt: str, llm: LLMClient, settings: Setting
         analysis=result.analysis,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
+        escalated=escalated,
     )
 
 
@@ -171,20 +175,30 @@ def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: 
     return builder.compile().with_config(recursion_limit=step_limit(settings.max_rounds))
 
 
-def run_graph(graph: Graph, snippet: str, language: str = SUPPORTED_LANGUAGE) -> GraphState:
-    """Run the graph on one snippet.
+def run_graph(
+    graph: Graph,
+    snippet: str,
+    language: str = SUPPORTED_LANGUAGE,
+    *,
+    clock: Callable[[], float] = time.perf_counter,
+) -> GraphState:
+    """Run the graph on one snippet, timing the whole run.
 
     Args:
         graph: A graph from ``build_graph``.
         snippet: The submitted code.
         language: The snippet's language.
+        clock: Returns the current time in seconds. Tests pass a fake one.
 
     Returns:
-        The final state. LangGraph returns a plain dict, so it is validated
-        back into a ``GraphState``.
+        The final state with its metrics. LangGraph returns a plain dict, so
+        it is validated back into a ``GraphState``.
 
     Raises:
         LLMError: If a model call fails.
     """
+    start = clock()
     output = graph.invoke(GraphState(snippet=snippet, language=language))
-    return GraphState.model_validate(output)
+    state = GraphState.model_validate(output)
+    metrics = summarize(state.attempts, latency_seconds=clock() - start)
+    return state.model_copy(update={"metrics": metrics})

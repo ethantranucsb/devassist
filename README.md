@@ -13,7 +13,9 @@ cat path/to/file.py | uv run devassist explain           # read the snippet from
 uv run devassist --version
 ```
 
-Results go to stdout and errors to stderr, so `> review.md` captures only the review. Output is always UTF-8. Piping works in any shell, but Windows PowerShell 5.1 pipes text as ASCII by default, so pass a file path there if the code has non-ASCII characters.
+The review goes to stdout. Errors go to stderr, and so does a one-line run summary after a Markdown review: rounds, escalations, tokens, cost at list prices and time, such as `3 rounds (1 escalation) | 6,500 in / 3,000 out tokens | $0.0164 | 18.4 s`. JSON output carries the same numbers under `metrics`. A model missing from the price table in `config.py` shows its cost as unknown rather than wrong.
+
+devassist writes UTF-8, so `> review.md` saves a clean UTF-8 review in most shells. Windows PowerShell 5.1 is the exception: it re-encodes text that passes through it, so `>` saves UTF-16 and can garble non-ASCII characters, and piped input loses them. On PowerShell 5.1, pass a file path rather than piping, and use PowerShell 7 when you need a saved review to be exact.
 
 | Option | What it does |
 |---|---|

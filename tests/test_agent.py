@@ -76,7 +76,9 @@ def answer(code: str) -> Analysis:
     )
 
 
-def attempt(code: str, round_number: int = 1, model: str = HAIKU) -> Attempt:
+def attempt(
+    code: str, round_number: int = 1, model: str = HAIKU, escalated: bool = False
+) -> Attempt:
     """Return a recorded round whose answer has the given improved code."""
     return Attempt(
         round=round_number,
@@ -84,6 +86,7 @@ def attempt(code: str, round_number: int = 1, model: str = HAIKU) -> Attempt:
         analysis=answer(code),
         input_tokens=FAKE_INPUT_TOKENS,
         output_tokens=FAKE_OUTPUT_TOKENS,
+        escalated=escalated,
     )
 
 
@@ -248,7 +251,8 @@ def test_refine_escalates_in_round_three_and_logs_it(caplog: pytest.LogCaptureFi
         update = refine(state, llm=llm, settings=make_settings())
 
     assert llm.requests[0].model == SONNET
-    assert update == {"attempts": [attempt(GOOD_CODE, round_number=3, model=SONNET)]}
+    expected = attempt(GOOD_CODE, round_number=3, model=SONNET, escalated=True)
+    assert update == {"attempts": [expected]}
     assert "escalating" in caplog.text
     assert SONNET in caplog.text
 
@@ -367,6 +371,7 @@ def test_round_three_escalates_to_the_fallback_model() -> None:
     state, llm = run([answer(BAD_CODE), answer(BAD_CODE), answer(GOOD_CODE)])
 
     assert [request.model for request in llm.requests] == [HAIKU, HAIKU, SONNET]
+    assert [a.escalated for a in state.attempts] == [False, False, True]
     assert state.result == answer(GOOD_CODE)
     assert state.warnings == []
 
@@ -398,6 +403,27 @@ def test_the_step_limit_fits_the_longest_run_exactly(max_rounds: int) -> None:
     assert len(longest.attempts) == max_rounds
     with pytest.raises(GraphRecursionError):
         run_graph(one_step_short, SNIPPET)
+
+
+def test_run_graph_attaches_metrics_timed_by_the_clock() -> None:
+    llm = FakeLLMClient([answer(BAD_CODE), answer(GOOD_CODE)])
+    graph = build_graph(llm, [], make_settings())
+    times = iter([10.0, 12.5])
+
+    state = run_graph(graph, SNIPPET, clock=lambda: next(times))
+
+    assert state.metrics is not None
+    assert state.metrics.latency_seconds == 2.5
+    assert state.metrics.rounds == 2
+    assert state.metrics.input_tokens == 2 * FAKE_INPUT_TOKENS
+
+
+def test_rejected_input_still_gets_metrics() -> None:
+    state, _ = run([], snippet="")
+
+    assert state.metrics is not None
+    assert state.metrics.rounds == 0
+    assert state.metrics.cost_usd == 0.0
 
 
 def test_a_model_error_propagates_out_of_the_graph() -> None:
