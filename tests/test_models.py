@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from devassist.models import Analysis, Category, Issue, Severity
+from devassist.models import Analysis, Attempt, Category, GraphState, Issue, Severity
 
 
 def make_issue(**overrides: object) -> dict[str, object]:
@@ -109,3 +109,30 @@ def test_json_round_trip_keeps_everything() -> None:
     restored = Analysis.model_validate_json(original.model_dump_json())
 
     assert restored == original
+
+
+def test_attempt_rounds_start_at_one() -> None:
+    with pytest.raises(ValidationError, match="round"):
+        Attempt(
+            round=0,
+            model="claude-haiku-5-5",
+            analysis=Analysis.model_validate(make_analysis()),
+            input_tokens=100,
+            output_tokens=50,
+        )
+
+
+def test_graph_state_starts_with_only_the_snippet() -> None:
+    state = GraphState(snippet="x = 1\n")
+
+    assert state.language == "python"
+    assert state.error is None
+    assert state.findings == []
+    assert state.attempts == []
+    assert state.problems == []
+    assert state.result is None
+    assert state.warnings == []
+
+
+def test_graph_state_accepts_a_blank_snippet_so_validation_can_report_it() -> None:
+    assert GraphState(snippet="").snippet == ""

@@ -112,3 +112,27 @@ One entry per real decision: the context, the options, the choice, why, and what
 - **Choice:** local hooks for `ruff check --fix`, `ruff format` and `mypy src`, all through `uv run`. `no-commit-to-branch` and gitleaks come from their published repositories, pinned to exact versions.
 - **Why:** The hooks then use the exact versions in `uv.lock`, the same ones CI uses, so the two can't disagree. pre-commit's isolated mypy can't see the project's dependencies, such as Pydantic, and would report false errors. pytest stays out of the hooks to keep commits fast; CI runs the tests.
 - **Would change if:** the hooks became slow enough to get in the way. mypy would then run in CI only.
+
+## D12. Python only
+
+*Decided Oct 16, 2026.*
+
+- **Context:** The brief asks for a tool that reviews code snippets. The analyzers that verify every rewrite (`ast`, ruff, bandit) read only Python.
+- **Options:** Python only; several languages, each with its own parser and linters; any language, reviewed by the model alone.
+- **Choice:** Python only. `validate_input` rejects any other language with a clear error, before any analyzer or model runs.
+- **Why:** Verification is the tool's main guarantee. Accepting a language the analyzers can't read would mean showing rewrites nobody checked. The `Analyzer` protocol keeps the door open.
+- **Would change if:** users needed another language. Each one needs its own analyzers (for example ESLint for JavaScript) and its own signature check in `verify.py`.
+
+## D13. How the graph handles failures
+
+*Decided Oct 16, 2026.*
+
+- **Context:** A run can fail in three ways: the input is unusable, a model call fails, or a rewrite still fails verification after the last round.
+- **Options:** record every failure in the state; raise every failure; treat each kind on its own terms.
+- **Choice:**
+  - Invalid input (empty, over the size limit, not Python) sets `error` in the state and ends the graph before any analyzer or model runs.
+  - Model and API errors (`LLMError`) raise out of the graph, and the CLI turns them into exit codes.
+  - A rewrite that still fails on the last round is returned with its problems as `warnings`.
+  - The graph's step limit is exactly what the longest run needs, `2 × max_rounds + 4` steps.
+- **Why:** Bad input is the user's to fix, so it's an expected result with a message, not a crash. A failed model call leaves nothing useful to show, and raising keeps the error's type for the CLI. Hiding a rewrite that nearly passed would waste the work; showing it with its problems lets the user judge. LangGraph's default step limit is 10,007, so a routing bug could make thousands of paid model calls before stopping; the exact limit stops it within one run's worth.
+- **Would change if:** users preferred no rewrite over a flagged one. `finalize` would then return the original code instead.

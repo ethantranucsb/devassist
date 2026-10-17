@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.13"
 dependencies = [
     "bandit>=1.9.4",
+    "langgraph>=1.2.16",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
     "ruff>=0.17.1",

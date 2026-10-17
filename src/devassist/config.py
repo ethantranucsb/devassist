@@ -8,6 +8,12 @@ from devassist.exceptions import MissingAPIKeyError
 DEFAULT_MODEL = "claude-haiku-5-5"
 DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
 
+# The draft, verify and refine loop
+MAX_ROUNDS = 3
+ESCALATION_ROUND = 3  # the first round that uses the fallback model
+MAX_SNIPPET_CHARS = 20_000  # about 500 lines of code
+SUPPORTED_LANGUAGE = "python"
+
 # Static analyzers
 ANALYZER_TIMEOUT_SECONDS = 30.0
 RUFF_TARGET_VERSION = "py313"
@@ -23,8 +29,14 @@ class Settings(BaseSettings):
 
     Attributes:
         anthropic_api_key: The Anthropic API key, from ``ANTHROPIC_API_KEY``.
-        model: The model for rounds 1 and 2, from ``DEVASSIST_MODEL``.
-        fallback_model: The model for round 3, from ``DEVASSIST_FALLBACK_MODEL``.
+        model: The model for rounds before the escalation round, from ``DEVASSIST_MODEL``.
+        fallback_model: The model from the escalation round on, from
+            ``DEVASSIST_FALLBACK_MODEL``.
+        max_rounds: The most model answers per run, from ``DEVASSIST_MAX_ROUNDS``.
+        escalation_round: The first round that uses the fallback model, from
+            ``DEVASSIST_ESCALATION_ROUND``.
+        max_snippet_chars: The longest snippet accepted, in characters, from
+            ``DEVASSIST_MAX_SNIPPET_CHARS``.
     """
 
     model_config = SettingsConfigDict(
@@ -37,6 +49,13 @@ class Settings(BaseSettings):
     model: str = Field(default=DEFAULT_MODEL, validation_alias="DEVASSIST_MODEL")
     fallback_model: str = Field(
         default=DEFAULT_FALLBACK_MODEL, validation_alias="DEVASSIST_FALLBACK_MODEL"
+    )
+    max_rounds: int = Field(default=MAX_ROUNDS, ge=1, validation_alias="DEVASSIST_MAX_ROUNDS")
+    escalation_round: int = Field(
+        default=ESCALATION_ROUND, ge=1, validation_alias="DEVASSIST_ESCALATION_ROUND"
+    )
+    max_snippet_chars: int = Field(
+        default=MAX_SNIPPET_CHARS, ge=1, validation_alias="DEVASSIST_MAX_SNIPPET_CHARS"
     )
 
     def require_api_key(self) -> str:
