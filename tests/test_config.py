@@ -1,9 +1,18 @@
 import pytest
+from pydantic import ValidationError
 
-from devassist.config import DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL, Settings
+from devassist.config import (
+    DEFAULT_FALLBACK_MODEL,
+    DEFAULT_MODEL,
+    ESCALATION_ROUND,
+    MAX_ROUNDS,
+    MAX_SNIPPET_CHARS,
+    Settings,
+)
 from devassist.exceptions import ConfigError, DevassistError, MissingAPIKeyError
 
-ENV_VARS = ("ANTHROPIC_API_KEY", "DEVASSIST_MODEL", "DEVASSIST_FALLBACK_MODEL")
+LIMIT_VARS = ("DEVASSIST_MAX_ROUNDS", "DEVASSIST_ESCALATION_ROUND", "DEVASSIST_MAX_SNIPPET_CHARS")
+ENV_VARS = ("ANTHROPIC_API_KEY", "DEVASSIST_MODEL", "DEVASSIST_FALLBACK_MODEL", *LIMIT_VARS)
 FAKE_KEY = "test-key-not-real"
 
 
@@ -35,6 +44,34 @@ def test_environment_overrides_the_models(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert settings.model == "claude-test-model"
     assert settings.fallback_model == "claude-test-fallback"
+
+
+def test_loop_limits_default_to_the_config_constants() -> None:
+    settings = load()
+
+    assert settings.max_rounds == MAX_ROUNDS
+    assert settings.escalation_round == ESCALATION_ROUND
+    assert settings.max_snippet_chars == MAX_SNIPPET_CHARS
+
+
+def test_environment_overrides_the_loop_limits(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEVASSIST_MAX_ROUNDS", "5")
+    monkeypatch.setenv("DEVASSIST_ESCALATION_ROUND", "2")
+    monkeypatch.setenv("DEVASSIST_MAX_SNIPPET_CHARS", "1000")
+
+    settings = load()
+
+    assert settings.max_rounds == 5
+    assert settings.escalation_round == 2
+    assert settings.max_snippet_chars == 1000
+
+
+@pytest.mark.parametrize("name", LIMIT_VARS)
+def test_loop_limits_below_one_are_rejected(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
+    monkeypatch.setenv(name, "0")
+
+    with pytest.raises(ValidationError, match=name):
+        load()
 
 
 def test_require_api_key_returns_the_key(monkeypatch: pytest.MonkeyPatch) -> None:

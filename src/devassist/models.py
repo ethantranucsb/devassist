@@ -1,4 +1,4 @@
-"""Pydantic schemas for what devassist returns.
+"""Pydantic schemas for what devassist returns, and the graph's state.
 
 The model's structured output must match ``Analysis``. Class docstrings and
 field descriptions end up in the JSON schema sent to the API, so they double
@@ -7,6 +7,7 @@ line ranges and blank text, are checked by validators after the response
 arrives, which keeps the schema itself flat.
 """
 
+import operator
 from enum import StrEnum
 from typing import Annotated, Self
 
@@ -18,6 +19,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from devassist.config import SUPPORTED_LANGUAGE
 
 
 def _require_text(value: str) -> str:
@@ -101,3 +104,46 @@ class Finding(BaseModel):
     code: str
     message: str
     line: int
+
+
+class Attempt(BaseModel):
+    """One round's model answer, with the usage needed for cost metrics.
+
+    Frozen, because a round's answer never changes once it arrives.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    round: int = Field(ge=1)
+    model: str
+    analysis: Analysis
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+
+
+class GraphState(BaseModel):
+    """Everything the graph knows about one run. Each node returns only the fields it changes.
+
+    Attributes:
+        snippet: The submitted code. A plain ``str`` rather than
+            ``NonBlankStr``, so ``validate_input`` can report a blank snippet
+            as an error instead of the state refusing to be created.
+        language: The snippet's language; only Python is supported.
+        error: Why the input was rejected, or ``None`` if it was accepted.
+        findings: What the analyzers reported for the submitted snippet.
+        attempts: One entry per round. LangGraph adds a node's new attempts to
+            the end of this list instead of replacing it.
+        problems: What the latest verify found wrong; empty if the latest
+            answer passed.
+        result: The answer shown to the user, set by ``finalize``.
+        warnings: Problems the final answer still has after the last round.
+    """
+
+    snippet: str
+    language: str = SUPPORTED_LANGUAGE
+    error: str | None = None
+    findings: list[Finding] = Field(default_factory=list)
+    attempts: Annotated[list[Attempt], operator.add] = Field(default_factory=list)
+    problems: list[str] = Field(default_factory=list)
+    result: Analysis | None = None
+    warnings: list[str] = Field(default_factory=list)
