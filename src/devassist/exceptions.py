@@ -23,3 +23,7 @@ class LLMError(DevassistError):
 
 class SchemaValidationError(LLMError):
     """The model's answer didn't match the output schema, even after a retry."""
+
+
+class AnalyzerError(DevassistError):
+    """A static analyzer timed out, crashed or returned output devassist can't read."""

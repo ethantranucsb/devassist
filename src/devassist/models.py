@@ -10,7 +10,14 @@ arrives, which keeps the schema itself flat.
 from enum import StrEnum
 from typing import Annotated, Self
 
-from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 def _require_text(value: str) -> str:
@@ -79,3 +86,18 @@ class Analysis(BaseModel):
     )
     issues: list[Issue] = Field(description="Problems found; an empty list if there are none.")
     improved_code: NonBlankStr = Field(description="The complete improved version of the snippet.")
+
+
+class Finding(BaseModel):
+    """One problem a static analyzer reported.
+
+    Frozen, so findings can be compared and collected in sets when the verify
+    step checks whether a rewrite added new problems.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    tool: str
+    code: str
+    message: str
+    line: int

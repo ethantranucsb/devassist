@@ -8,6 +8,12 @@ from devassist.exceptions import MissingAPIKeyError
 DEFAULT_MODEL = "claude-haiku-5-5"
 DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
 
+# Static analyzers
+ANALYZER_TIMEOUT_SECONDS = 30.0
+RUFF_TARGET_VERSION = "py313"
+RUFF_SELECT = ("E", "F", "B")  # pycodestyle errors, pyflakes, bugbear
+RUFF_IGNORE = ("E501",)  # line length is style, not a problem worth a fix
+
 
 class Settings(BaseSettings):
     """devassist's settings, loaded from environment variables and `.env`.
