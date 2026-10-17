@@ -32,7 +32,7 @@ from devassist.exceptions import (
 )
 from devassist.llm import LLMClient
 from devassist.llm.anthropic_client import AnthropicClient
-from devassist.models import Analysis, Issue
+from devassist.models import Analysis, Issue, RunMetrics
 
 type LLMFactory = Callable[[Settings], LLMClient]
 type AnalyzerFactory = Callable[[], Sequence[Analyzer]]
@@ -187,10 +187,37 @@ def render_markdown(analysis: Analysis, warnings: Sequence[str]) -> str:
     return "\n".join(lines)
 
 
-def render_json(analysis: Analysis, warnings: Sequence[str]) -> str:
-    """Render the review as JSON, with the analysis and the warnings as separate keys."""
-    report = {"analysis": analysis.model_dump(mode="json"), "warnings": list(warnings)}
+def render_json(analysis: Analysis, warnings: Sequence[str], metrics: RunMetrics) -> str:
+    """Render the review as JSON, with the analysis, warnings and metrics as separate keys."""
+    report = {
+        "analysis": analysis.model_dump(mode="json"),
+        "warnings": list(warnings),
+        "metrics": metrics.model_dump(mode="json"),
+    }
     return json.dumps(report, indent=2, ensure_ascii=False)
+
+
+def _plural(count: int, noun: str) -> str:
+    """Return ``"1 round"`` or ``"3 rounds"``."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _dollars(cost: float) -> str:
+    """Show a cost to the millionth of a dollar, without trailing zeros, such as ``$0.00077``."""
+    return "$" + f"{cost:.6f}".rstrip("0").rstrip(".")
+
+
+def metrics_line(metrics: RunMetrics) -> str:
+    """Summarize a run in one line, such as ``3 rounds (1 escalation) | ... | 18.4 s``."""
+    rounds = _plural(metrics.rounds, "round")
+    if metrics.escalations:
+        rounds += f" ({_plural(metrics.escalations, 'escalation')})"
+    tokens = f"{metrics.input_tokens:,} in / {metrics.output_tokens:,} out tokens"
+    if metrics.cost_usd is None:
+        cost = f"cost unknown (no price for {', '.join(sorted(set(metrics.unpriced_models)))})"
+    else:
+        cost = _dollars(metrics.cost_usd)
+    return " | ".join([rounds, tokens, cost, f"{metrics.latency_seconds:.1f} s"])
 
 
 def _show_version(value: bool) -> None:
@@ -269,10 +296,13 @@ def build_app(
             except DevassistError as error:
                 typer.echo(f"Error: {error}", err=True)
                 raise typer.Exit(_exit_code(error)) from error
-        if state.result is None:
+        if state.result is None or state.metrics is None:
             raise RuntimeError("The graph finished without a result or an error.")
-        render = render_json if output_format is OutputFormat.JSON else render_markdown
-        typer.echo(render(state.result, state.warnings))
+        if output_format is OutputFormat.JSON:
+            typer.echo(render_json(state.result, state.warnings, state.metrics))
+        else:
+            typer.echo(render_markdown(state.result, state.warnings))
+            typer.echo(metrics_line(state.metrics), err=True)
 
     return app
 

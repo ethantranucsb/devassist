@@ -132,6 +132,7 @@ def test_graph_state_starts_with_only_the_snippet() -> None:
     assert state.problems == []
     assert state.result is None
     assert state.warnings == []
+    assert state.metrics is None
 
 
 def test_graph_state_accepts_a_blank_snippet_so_validation_can_report_it() -> None:

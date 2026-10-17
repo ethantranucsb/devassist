@@ -110,6 +110,8 @@ class Attempt(BaseModel):
     """One round's model answer, with the usage needed for cost metrics.
 
     Frozen, because a round's answer never changes once it arrives.
+    ``escalated`` is recorded when the model is chosen, because the model
+    that answers may report a dated ID that no longer matches the setting.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -119,6 +121,33 @@ class Attempt(BaseModel):
     analysis: Analysis
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
+    escalated: bool = False
+
+
+class RunMetrics(BaseModel):
+    """What one run used: rounds, models, tokens, money and time.
+
+    Attributes:
+        rounds: How many model answers the run took.
+        models: The model that answered each round, in order.
+        escalations: How many rounds used the fallback model.
+        input_tokens: Input tokens across every round.
+        output_tokens: Output tokens across every round.
+        cost_usd: The total at list prices, or ``None`` if any model has no price.
+        unpriced_models: The models that made the cost unknown.
+        latency_seconds: Wall-clock time for the whole run.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    rounds: int = Field(ge=0)
+    models: list[str]
+    escalations: int = Field(ge=0)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    cost_usd: float | None
+    unpriced_models: list[str]
+    latency_seconds: float = Field(ge=0)
 
 
 class GraphState(BaseModel):
@@ -137,6 +166,8 @@ class GraphState(BaseModel):
             answer passed.
         result: The answer shown to the user, set by ``finalize``.
         warnings: Problems the final answer still has after the last round.
+        metrics: What the run used. Set by ``run_graph`` once the graph has
+            finished, since only it can time the whole run; no node writes it.
     """
 
     snippet: str
@@ -147,3 +178,4 @@ class GraphState(BaseModel):
     problems: list[str] = Field(default_factory=list)
     result: Analysis | None = None
     warnings: list[str] = Field(default_factory=list)
+    metrics: RunMetrics | None = None

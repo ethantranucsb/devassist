@@ -1,5 +1,7 @@
 """Settings read from the environment and an optional .env file."""
 
+from dataclasses import dataclass
+
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -7,6 +9,22 @@ from devassist.exceptions import MissingAPIKeyError
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
+
+
+@dataclass(frozen=True)
+class Price:
+    """A model's list price, in US dollars per million tokens."""
+
+    input_per_million: float
+    output_per_million: float
+
+
+# List prices checked Oct 13, 2026 (docs/decisions.md D8). A model missing
+# here gets an unknown cost rather than a wrong one.
+PRICES: dict[str, Price] = {
+    DEFAULT_MODEL: Price(input_per_million=0.10, output_per_million=0.50),
+    DEFAULT_FALLBACK_MODEL: Price(input_per_million=2.00, output_per_million=10.00),
+}
 
 # The draft, verify and refine loop
 MAX_ROUNDS = 3
