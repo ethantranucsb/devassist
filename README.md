@@ -24,6 +24,7 @@ devassist writes UTF-8, so `> review.md` saves a clean UTF-8 review in most shel
 | `--max-rounds N` | Most model answers per run (default 3). Overrides `DEVASSIST_MAX_ROUNDS`. |
 | `--language NAME` | The snippet's language. Only Python is supported. |
 | `--verbose`, `-v` | Log escalations and retries to stderr. |
+| `--trace` | Print each graph step to stderr as it finishes (see Tracing below). |
 
 Settings come from command-line flags first, then environment variables, then `.env`, then the defaults in `.env.example`.
 
@@ -35,6 +36,30 @@ Settings come from command-line flags first, then environment variables, then `.
 | 3 | A configuration problem, such as a missing API key or an invalid setting. |
 | 4 | A model or API problem: timeout, rate limit, refusal, or an answer that failed validation twice. |
 | 5 | A static analyzer failed. |
+
+## Tracing
+
+`--trace` prints each step of the graph to stderr as it finishes. It shows counts, rounds, models and problems, never code:
+
+```
+[trace] validate_input: input accepted
+[trace] run_static_checks: 3 findings
+[trace] draft: round 1 on claude-haiku-5-5, 1,900 in / 1,200 out tokens
+[trace] verify: 1 problem
+[trace]   - public function `add` changed from (a, b) to (x, y)
+[trace] refine: round 2 on claude-haiku-5-5, 2,400 in / 1,300 out tokens
+[trace] verify: passed
+[trace] finalize: done
+```
+
+**LangSmith (optional).** LangGraph can also record every run in [LangSmith](https://smith.langchain.com), LangChain's hosted tracing service. It stays off unless you set LangSmith's own variables in your shell:
+
+```
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=<your LangSmith key>
+```
+
+**Traces send the snippet, the analyzer findings and the model's answers to LangSmith's servers.** devassist prints a notice on stderr whenever tracing is on, and a warning if tracing is requested without a key. The Anthropic API key never appears in a trace. LangSmith reads these variables from the shell only; setting them in `.env` has no effect (see `docs/decisions.md` D15).
 
 
 ## Development

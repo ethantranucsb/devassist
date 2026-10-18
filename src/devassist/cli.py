@@ -8,21 +8,22 @@ analyzer factories as arguments, so tests can run the real CLI against fakes.
 import io
 import json
 import logging
+import os
 import re
 import sys
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from enum import IntEnum, StrEnum
 from importlib.metadata import version
 from pathlib import Path
-from typing import Annotated, TextIO
+from typing import Annotated, Any, TextIO
 
 import typer
 from pydantic import ValidationError
 
 from devassist.agent import build_graph, run_graph
 from devassist.analyzers import Analyzer, default_analyzers
-from devassist.config import SUPPORTED_LANGUAGE, Settings
+from devassist.config import SUPPORTED_LANGUAGE, LangSmithStatus, Settings, langsmith_status
 from devassist.exceptions import (
     AnalyzerError,
     ConfigError,
@@ -220,6 +221,57 @@ def metrics_line(metrics: RunMetrics) -> str:
     return " | ".join([rounds, tokens, cost, f"{metrics.latency_seconds:.1f} s"])
 
 
+LANGSMITH_NOTICES = {
+    LangSmithStatus.ON: (
+        "LangSmith tracing is on: this snippet and the model's answers are sent to LangSmith."
+    ),
+    LangSmithStatus.NO_KEY: (
+        "LangSmith tracing is requested, but LANGSMITH_API_KEY isn't set, so traces can't be sent."
+    ),
+}
+
+
+def describe_step(node: str, update: Mapping[str, Any]) -> list[str]:
+    """Describe one graph step for ``--trace``: counts, rounds and problems, never code.
+
+    Args:
+        node: The node that just ran.
+        update: The fields it changed, exactly as the node returned them.
+
+    Returns:
+        One or more lines, such as ``verify: 1 problem`` and the problem itself.
+    """
+    if node == "validate_input":
+        error = update.get("error")
+        return [f"{node}: input rejected: {error}" if error else f"{node}: input accepted"]
+    if node == "run_static_checks":
+        return [f"{node}: {_plural(len(update['findings']), 'finding')}"]
+    if node in ("draft", "refine"):
+        attempt = update["attempts"][-1]
+        line = (
+            f"{node}: round {attempt.round} on {attempt.model}, "
+            f"{attempt.input_tokens:,} in / {attempt.output_tokens:,} out tokens"
+        )
+        return [f"{line} (escalated)" if attempt.escalated else line]
+    if node == "verify":
+        problems = update["problems"]
+        if not problems:
+            return [f"{node}: passed"]
+        return [f"{node}: {_plural(len(problems), 'problem')}", *(f"  - {p}" for p in problems)]
+    if node == "finalize":
+        warnings = update["warnings"]
+        if not warnings:
+            return [f"{node}: done"]
+        return [f"{node}: done with {_plural(len(warnings), 'warning')}"]
+    return [node]
+
+
+def _print_step(node: str, update: Mapping[str, Any]) -> None:
+    """Print one graph step to stderr, for ``--trace``."""
+    for line in describe_step(node, update):
+        typer.echo(f"[trace] {line}", err=True)
+
+
 def _show_version(value: bool) -> None:
     """Print the installed version and stop, for ``--version``."""
     if value:
@@ -282,15 +334,21 @@ def build_app(
         verbose: Annotated[
             bool, typer.Option("--verbose", "-v", help="Log escalations and retries to stderr.")
         ] = False,
+        trace: Annotated[
+            bool, typer.Option("--trace", help="Print each graph step to stderr as it finishes.")
+        ] = False,
     ) -> None:
         """Document a snippet, flag its issues and suggest a checked improvement."""
         _use_utf8(sys.stdout, sys.stderr)
+        notice = LANGSMITH_NOTICES.get(langsmith_status(os.environ))
+        if notice is not None:
+            typer.echo(notice, err=True)
         with _log_to_stderr(verbose):
             try:
                 code = _read_input(path)
                 settings = _load_settings(model, max_rounds)
                 graph = build_graph(make_llm(settings), make_analyzers(), settings)
-                state = run_graph(graph, code, language)
+                state = run_graph(graph, code, language, on_step=_print_step if trace else None)
                 if state.error is not None:
                     raise InputError(state.error)
             except DevassistError as error:

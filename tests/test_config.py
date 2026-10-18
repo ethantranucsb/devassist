@@ -7,7 +7,9 @@ from devassist.config import (
     ESCALATION_ROUND,
     MAX_ROUNDS,
     MAX_SNIPPET_CHARS,
+    LangSmithStatus,
     Settings,
+    langsmith_status,
 )
 from devassist.exceptions import ConfigError, DevassistError, MissingAPIKeyError
 
@@ -96,6 +98,42 @@ def test_api_key_is_hidden_when_settings_are_printed(monkeypatch: pytest.MonkeyP
 
     assert FAKE_KEY not in repr(settings)
     assert FAKE_KEY not in str(settings)
+
+
+@pytest.mark.parametrize(
+    ("environ", "expected"),
+    [
+        ({}, LangSmithStatus.OFF),
+        ({"LANGSMITH_TRACING": "true", "LANGSMITH_API_KEY": "k"}, LangSmithStatus.ON),
+        ({"LANGCHAIN_TRACING_V2": "true", "LANGCHAIN_API_KEY": "k"}, LangSmithStatus.ON),
+        ({"LANGSMITH_TRACING": "true"}, LangSmithStatus.NO_KEY),
+        ({"LANGSMITH_TRACING": "true", "LANGSMITH_API_KEY": "  "}, LangSmithStatus.NO_KEY),
+        ({"LANGSMITH_TRACING": "false", "LANGSMITH_API_KEY": "k"}, LangSmithStatus.OFF),
+        ({"LANGSMITH_TRACING": "True", "LANGSMITH_API_KEY": "k"}, LangSmithStatus.OFF),
+        (
+            {
+                "LANGSMITH_TRACING_V2": "false",
+                "LANGSMITH_TRACING": "true",
+                "LANGSMITH_API_KEY": "k",
+            },
+            LangSmithStatus.OFF,
+        ),
+    ],
+    ids=[
+        "nothing-set",
+        "on",
+        "older-names",
+        "no-key",
+        "blank-key",
+        "off",
+        "only-lowercase-true-counts",
+        "v2-takes-priority",
+    ],
+)
+def test_langsmith_status_follows_langsmiths_own_rules(
+    environ: dict[str, str], expected: LangSmithStatus
+) -> None:
+    assert langsmith_status(environ) is expected
 
 
 def test_missing_key_error_is_caught_as_a_devassist_error() -> None:

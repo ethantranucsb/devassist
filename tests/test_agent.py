@@ -418,6 +418,35 @@ def test_run_graph_attaches_metrics_timed_by_the_clock() -> None:
     assert state.metrics.input_tokens == 2 * FAKE_INPUT_TOKENS
 
 
+def test_run_graph_reports_each_step_in_order() -> None:
+    llm = FakeLLMClient([answer(BAD_CODE), answer(GOOD_CODE)])
+    graph = build_graph(llm, [], make_settings())
+    steps: list[tuple[str, dict[str, object]]] = []
+
+    run_graph(graph, SNIPPET, on_step=lambda node, update: steps.append((node, dict(update))))
+
+    assert [node for node, _ in steps] == [
+        "validate_input",
+        "run_static_checks",
+        "draft",
+        "verify",
+        "refine",
+        "verify",
+        "finalize",
+    ]
+    assert steps[0] == ("validate_input", {})
+    assert steps[3] == ("verify", {"problems": [BAD_CODE_PROBLEM]})
+
+
+def test_rejected_input_reports_only_the_validation_step() -> None:
+    graph = build_graph(FakeLLMClient([]), [], make_settings())
+    steps: list[tuple[str, dict[str, object]]] = []
+
+    run_graph(graph, "", on_step=lambda node, update: steps.append((node, dict(update))))
+
+    assert steps == [("validate_input", {"error": "The snippet is empty."})]
+
+
 def test_rejected_input_still_gets_metrics() -> None:
     state, _ = run([], snippet="")
 
