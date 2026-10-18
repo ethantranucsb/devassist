@@ -406,4 +406,6 @@ def main(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    # The HTTP client logs every request at INFO, which buries the progress lines.
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
     raise SystemExit(main())
