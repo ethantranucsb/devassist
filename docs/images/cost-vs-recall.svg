@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="420" viewBox="0 0 680 420" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" fill="#111827">
+<rect width="680" height="420" fill="#ffffff"/>
+<text x="72" y="28" font-size="15" font-weight="600">Recall against cost per snippet</text>
+<text x="72" y="46" fill="#6b7280">Whiskers: 95% bootstrap intervals over cases</text>
+<line x1="72" y1="356.0" x2="580" y2="356.0" stroke="#e5e7eb"/>
+<text x="64" y="360.0" text-anchor="end">70%</text>
+<line x1="72" y1="256.0" x2="580" y2="256.0" stroke="#e5e7eb"/>
+<text x="64" y="260.0" text-anchor="end">80%</text>
+<line x1="72" y1="156.0" x2="580" y2="156.0" stroke="#e5e7eb"/>
+<text x="64" y="160.0" text-anchor="end">90%</text>
+<line x1="72" y1="56.0" x2="580" y2="56.0" stroke="#e5e7eb"/>
+<text x="64" y="60.0" text-anchor="end">100%</text>
+<line x1="86.5" y1="56" x2="86.5" y2="356" stroke="#e5e7eb"/>
+<text x="86.5" y="374" text-anchor="middle">$0.0005</text>
+<line x1="175.3" y1="56" x2="175.3" y2="356" stroke="#e5e7eb"/>
+<text x="175.3" y="374" text-anchor="middle">$0.001</text>
+<line x1="264.1" y1="56" x2="264.1" y2="356" stroke="#e5e7eb"/>
+<text x="264.1" y="374" text-anchor="middle">$0.002</text>
+<line x1="381.6" y1="56" x2="381.6" y2="356" stroke="#e5e7eb"/>
+<text x="381.6" y="374" text-anchor="middle">$0.005</text>
+<line x1="470.4" y1="56" x2="470.4" y2="356" stroke="#e5e7eb"/>
+<text x="470.4" y="374" text-anchor="middle">$0.01</text>
+<line x1="559.3" y1="56" x2="559.3" y2="356" stroke="#e5e7eb"/>
+<text x="559.3" y="374" text-anchor="middle">$0.02</text>
+<line x1="72" y1="356" x2="580" y2="356" stroke="#111827"/>
+<line x1="72" y1="56" x2="72" y2="356" stroke="#111827"/>
+<text x="326.0" y="402" text-anchor="middle">Mean cost per snippet (log scale)</text>
+<text transform="translate(20 206.0) rotate(-90)" text-anchor="middle">Recall on planted issues</text>
+<line class="whisker" x1="491.2" y1="222.7" x2="491.2" y2="56.0" stroke="#6b7280" stroke-width="2"/>
+<line class="cap" x1="487.2" y1="222.7" x2="495.2" y2="222.7" stroke="#6b7280" stroke-width="2"/>
+<line class="cap" x1="487.2" y1="56.0" x2="495.2" y2="56.0" stroke="#6b7280" stroke-width="2"/>
+<circle class="point" cx="491.2" cy="111.6" r="6" fill="#6b7280"/>
+<text x="503.2" y="115.6" fill="#6b7280" font-weight="600">Sonnet alone</text>
+<text x="503.2" y="131.6" fill="#6b7280">94.4%, $0.01176</text>
+<line class="whisker" x1="167.3" y1="241.2" x2="167.3" y2="56.0" stroke="#6d28d9" stroke-width="2"/>
+<line class="cap" x1="163.3" y1="241.2" x2="171.3" y2="241.2" stroke="#6d28d9" stroke-width="2"/>
+<line class="cap" x1="163.3" y1="56.0" x2="171.3" y2="56.0" stroke="#6d28d9" stroke-width="2"/>
+<circle class="point highlight" cx="167.3" cy="130.1" r="6" fill="#6d28d9"/>
+<text x="179.3" y="134.1" fill="#6d28d9" font-weight="600">Design</text>
+<text x="179.3" y="150.1" fill="#6b7280">92.6%, $0.00090</text>
+<line class="whisker" x1="155.8" y1="333.8" x2="155.8" y2="56.0" stroke="#6b7280" stroke-width="2"/>
+<line class="cap" x1="151.8" y1="333.8" x2="159.8" y2="333.8" stroke="#6b7280" stroke-width="2"/>
+<line class="cap" x1="151.8" y1="56.0" x2="159.8" y2="56.0" stroke="#6b7280" stroke-width="2"/>
+<circle class="point" cx="155.8" cy="167.1" r="6" fill="#6b7280"/>
+<text x="179.3" y="171.1" fill="#6b7280" font-weight="600">Haiku alone</text>
+<text x="179.3" y="187.1" fill="#6b7280">88.9%, $0.00089</text>
+</svg>
