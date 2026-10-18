@@ -9,8 +9,9 @@ they change.
 
 import logging
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from functools import partial
+from typing import Any, cast
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -27,6 +28,8 @@ logger = logging.getLogger(__name__)
 
 type Update = dict[str, object]
 type Graph = CompiledStateGraph[GraphState]
+# Called after each step with the node's name and the fields it changed.
+type StepCallback = Callable[[str, Mapping[str, Any]], None]
 
 
 def _analyze(code: str, analyzers: Sequence[Analyzer]) -> list[Finding]:
@@ -181,6 +184,7 @@ def run_graph(
     language: str = SUPPORTED_LANGUAGE,
     *,
     clock: Callable[[], float] = time.perf_counter,
+    on_step: StepCallback | None = None,
 ) -> GraphState:
     """Run the graph on one snippet, timing the whole run.
 
@@ -189,16 +193,30 @@ def run_graph(
         snippet: The submitted code.
         language: The snippet's language.
         clock: Returns the current time in seconds. Tests pass a fake one.
+        on_step: Called after each step with the node's name and the fields
+            it changed, for ``--trace``.
 
     Returns:
-        The final state with its metrics. LangGraph returns a plain dict, so
-        it is validated back into a ``GraphState``.
+        The final state with its metrics. LangGraph streams plain dicts, so
+        the last full state is validated back into a ``GraphState``.
 
     Raises:
         LLMError: If a model call fails.
     """
     start = clock()
-    output = graph.invoke(GraphState(snippet=snippet, language=language))
-    state = GraphState.model_validate(output)
+    final: Mapping[str, Any] = {}
+    stream = graph.stream(
+        GraphState(snippet=snippet, language=language), stream_mode=["updates", "values"]
+    )
+    # Given a list of modes, stream() yields (mode, chunk) pairs, which its type hints
+    # don't say. "updates" chunks hold each node's changes; "values" hold the whole state.
+    for mode, chunk in cast(Iterator[tuple[str, dict[str, Any]]], stream):
+        if mode == "values":
+            final = chunk
+        elif on_step is not None:
+            for node, update in chunk.items():
+                # A node that changed nothing streams None rather than {}.
+                on_step(node, update or {})
+    state = GraphState.model_validate(final)
     metrics = summarize(state.attempts, latency_seconds=clock() - start)
     return state.model_copy(update={"metrics": metrics})

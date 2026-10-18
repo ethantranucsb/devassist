@@ -146,3 +146,13 @@ One entry per real decision: the context, the options, the choice, why, and what
 - **Choice:** `messages.create()` with `output_config.format` set to the schema that `anthropic.transform_schema(Analysis)` builds, so the API still constrains the answer to the schema. devassist then checks `stop_reason` (anything but `end_turn` is an error) and validates with `Analysis.model_validate_json`.
 - **Why:** With `parse()`, a refusal or a cut-off answer isn't valid JSON, so it would surface as a schema failure and trigger a paid retry that can't help. The retry D6 requires also sends the bad answer back to the model, and `parse()` throws that answer away. `create()` keeps schema-constrained output and gives devassist the stop reason and the raw text.
 - **Would change if:** a later SDK's `parse()` returned the raw response along with a validation failure.
+
+## D15. LangSmith tracing through its own environment variables, shell only
+
+*Decided Oct 17, 2026.*
+
+- **Context:** LangGraph sends traces to LangSmith on its own when LangSmith's environment variables are set. A trace holds the graph's state: the snippet, the analyzer findings and each round's answer. pydantic-settings reads `.env` into `Settings` but doesn't copy it into the process environment, which is where LangSmith looks.
+- **Options:** rely on LangSmith's variables, set in the shell; also load `.env` into the environment at startup; read LangSmith settings into `Settings` and attach a tracer by hand.
+- **Choice:** LangSmith's own variables, from the shell only. devassist doesn't switch tracing on or off itself. It checks the variables with the same rules the LangSmith library uses, prints a notice on stderr when traces will be sent, and warns when tracing is requested without a key. Tests clear the variables (`tests/conftest.py`).
+- **Why:** It takes no code to turn on, and the variables are the ones LangSmith documents. The notice makes sure code never leaves the machine silently. Supporting `.env` would add a second way settings get loaded, plus a dependency, for an optional debugging feature. The Anthropic key isn't part of the graph's state, so it can't appear in a trace.
+- **Would change if:** tracing became part of everyday use. `.env` would then be loaded into the environment at startup with python-dotenv, which pydantic-settings already installs.

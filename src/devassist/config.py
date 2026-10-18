@@ -1,6 +1,8 @@
 """Settings read from the environment and an optional .env file."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -99,3 +101,42 @@ class Settings(BaseSettings):
                 "or set the variable in your shell."
             )
         return self.anthropic_api_key.get_secret_value()
+
+
+class LangSmithStatus(StrEnum):
+    """Whether LangGraph will send traces to LangSmith."""
+
+    OFF = "off"
+    ON = "on"
+    NO_KEY = "no-key"
+
+
+def _langsmith_variable(environ: Mapping[str, str], name: str) -> str | None:
+    """Read a LangSmith variable under either prefix, treating blank values as unset."""
+    for prefix in ("LANGSMITH", "LANGCHAIN"):
+        value = environ.get(f"{prefix}_{name}")
+        if value is not None and value.strip():
+            return value
+    return None
+
+
+def langsmith_status(environ: Mapping[str, str]) -> LangSmithStatus:
+    """Decide whether tracing is on, by the same rules the LangSmith library uses.
+
+    LangSmith reads its variables from the process environment, not from
+    devassist's ``.env`` (docs/decisions.md D15). ``TRACING_V2`` takes
+    priority over ``TRACING``, and only the exact value ``true`` turns it on.
+
+    Args:
+        environ: The environment variables, usually ``os.environ``.
+
+    Returns:
+        ``ON`` if traces will be sent, ``NO_KEY`` if tracing is requested
+        without an API key, and ``OFF`` otherwise.
+    """
+    tracing = _langsmith_variable(environ, "TRACING_V2") or _langsmith_variable(environ, "TRACING")
+    if tracing != "true":
+        return LangSmithStatus.OFF
+    if _langsmith_variable(environ, "API_KEY") is None:
+        return LangSmithStatus.NO_KEY
+    return LangSmithStatus.ON

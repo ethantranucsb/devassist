@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 from devassist import cli
 from devassist.analyzers import Analyzer
 from devassist.cli import ExitCode, build_app
+from devassist.config import LangSmithStatus
 from devassist.exceptions import AnalyzerError, DevassistError, LLMError, SchemaValidationError
 from devassist.llm import FakeLLMClient
 from devassist.llm.fake import ScriptStep
@@ -229,6 +230,103 @@ def test_escalations_are_hidden_without_verbose() -> None:
     result = runner.invoke(app, ["explain", write_snippet()])
 
     assert "escalating" not in result.stderr
+
+
+def trace_lines(stderr: str) -> list[str]:
+    """Return the trace lines from stderr, without their prefix."""
+    prefix = "[trace] "
+    return [line.removeprefix(prefix) for line in stderr.splitlines() if line.startswith(prefix)]
+
+
+def test_trace_prints_each_step_on_stderr() -> None:
+    app, _ = fake_app(answer(BAD_CODE), answer())
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--trace"])
+
+    assert trace_lines(result.stderr) == [
+        "validate_input: input accepted",
+        "run_static_checks: 0 findings",
+        "draft: round 1 on claude-haiku-5-5, 100 in / 50 out tokens",
+        "verify: 1 problem",
+        "  - public function `add` changed from (a, b) to (x, y)",
+        "refine: round 2 on claude-haiku-5-5, 100 in / 50 out tokens",
+        "verify: passed",
+        "finalize: done",
+    ]
+
+
+def test_trace_marks_an_escalated_round() -> None:
+    app, _ = fake_app(answer(BAD_CODE), answer(BAD_CODE), answer())
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--trace"])
+
+    expected = "refine: round 3 on claude-sonnet-5-5, 100 in / 50 out tokens (escalated)"
+    assert expected in trace_lines(result.stderr)
+
+
+def test_trace_counts_the_warnings_left_at_the_end() -> None:
+    app, _ = fake_app(answer(BAD_CODE))
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--trace", "--max-rounds", "1"])
+
+    assert trace_lines(result.stderr)[-1] == "finalize: done with 1 warning"
+
+
+def test_trace_shows_rejected_input() -> None:
+    app, _ = fake_app()
+
+    result = runner.invoke(app, ["explain", write_snippet(""), "--trace"])
+
+    assert trace_lines(result.stderr) == ["validate_input: input rejected: The snippet is empty."]
+
+
+def test_trace_never_prints_code() -> None:
+    app, _ = fake_app(answer(BAD_CODE), answer())
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--trace"])
+
+    assert "return a+b" not in result.stderr
+    assert "return a + b" not in result.stderr
+
+
+def test_a_step_from_an_unknown_node_is_named_without_details() -> None:
+    assert cli.describe_step("new_node", {}) == ["new_node"]
+
+
+def test_without_trace_no_steps_are_printed() -> None:
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert "[trace]" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("status", "message"),
+    [
+        (LangSmithStatus.ON, "LangSmith tracing is on: this snippet and the model's answers"),
+        (LangSmithStatus.NO_KEY, "LANGSMITH_API_KEY isn't set, so traces can't be sent"),
+    ],
+    ids=["on", "no-key"],
+)
+def test_langsmith_tracing_is_announced(
+    monkeypatch: pytest.MonkeyPatch, status: LangSmithStatus, message: str
+) -> None:
+    # Replace the check rather than setting LangSmith's variables, which would send real traces.
+    monkeypatch.setattr(cli, "langsmith_status", lambda environ: status)
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert message in result.stderr
+
+
+def test_nothing_is_said_about_langsmith_when_it_is_off() -> None:
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert "LangSmith" not in result.stderr
 
 
 def test_version_prints_the_installed_version() -> None:
