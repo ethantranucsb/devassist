@@ -57,6 +57,7 @@ def summarize(attempts: Sequence[Attempt], latency_seconds: float) -> RunMetrics
         rounds=len(attempts),
         models=[attempt.model for attempt in attempts],
         escalations=sum(1 for attempt in attempts if attempt.escalated),
+        retries=sum(1 for attempt in attempts if attempt.retried),
         input_tokens=sum(attempt.input_tokens for attempt in attempts),
         output_tokens=sum(attempt.output_tokens for attempt in attempts),
         cost_usd=None if unpriced else sum(cost for cost in costs if cost is not None),

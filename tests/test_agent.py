@@ -193,9 +193,13 @@ def test_draft_sends_the_draft_prompt_to_the_default_model() -> None:
     assert update == {"attempts": [attempt(GOOD_CODE)]}
 
 
-def test_an_attempt_records_the_model_that_answered_and_its_tokens() -> None:
+def test_an_attempt_records_the_model_that_answered_its_tokens_and_any_retry() -> None:
     result = LLMResult(
-        analysis=answer(GOOD_CODE), model="haiku-test-20261001", input_tokens=7, output_tokens=3
+        analysis=answer(GOOD_CODE),
+        model="haiku-test-20261001",
+        input_tokens=7,
+        output_tokens=3,
+        retried=True,
     )
     llm = FakeLLMClient([result])
 
@@ -207,6 +211,7 @@ def test_an_attempt_records_the_model_that_answered_and_its_tokens() -> None:
         analysis=answer(GOOD_CODE),
         input_tokens=7,
         output_tokens=3,
+        retried=True,
     )
     assert update == {"attempts": [expected]}
 

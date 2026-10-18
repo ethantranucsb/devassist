@@ -98,6 +98,7 @@ def test_the_result_has_the_analysis_the_answering_model_and_the_usage() -> None
     assert result.model == "claude-haiku-5-5-20261001"
     assert result.input_tokens == 11
     assert result.output_tokens == 20
+    assert result.retried is False
 
 
 def test_a_refusal_is_an_error_and_is_not_retried() -> None:
@@ -129,6 +130,7 @@ def test_an_invalid_answer_is_retried_once_with_the_errors_fed_back() -> None:
     result = make_client(api).generate(REQUEST)
 
     assert result.analysis == Analysis.model_validate(VALID)
+    assert result.retried is True
     retry = api.bodies[1]["messages"]
     assert retry[0] == {"role": "user", "content": "Review this."}
     assert retry[1] == {"role": "assistant", "content": bad}

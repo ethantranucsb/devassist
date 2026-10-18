@@ -34,14 +34,17 @@ class LLMResult:
     Attributes:
         analysis: The model's answer, already validated against the schema.
         model: The model that actually answered.
-        input_tokens: Input tokens billed for the call.
-        output_tokens: Output tokens billed for the call, including any thinking tokens.
+        input_tokens: Input tokens billed for the call, including any retry.
+        output_tokens: Output tokens billed for the call, including any retry and any
+            thinking tokens.
+        retried: Whether the first answer failed validation and a retry was needed.
     """
 
     analysis: Analysis
     model: str
     input_tokens: int
     output_tokens: int
+    retried: bool = False
 
 
 class LLMClient(Protocol):
