@@ -245,6 +245,8 @@ def test_a_smoke_run_writes_raw_records_a_summary_and_a_csv(
     )
 
     assert code == 0
+    for name in ("smoke-runs.jsonl", "smoke-summary.json", "smoke-cases.csv"):
+        assert b"\r" not in (tmp_path / name).read_bytes(), f"{name} has Windows line endings"
     raw = (tmp_path / "smoke-runs.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(raw) == 12 * 2
     assert RunRecord.model_validate_json(raw[0]).config in (DESIGN, BASELINE)
