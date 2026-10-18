@@ -30,6 +30,8 @@ jobs:
         run: uv run mypy
       - name: Test
         run: uv run pytest
+      - name: Run the installed command
+        run: uv run devassist --version
 
   docker:
     runs-on: ubuntu-latest
