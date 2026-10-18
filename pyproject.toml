@@ -43,10 +43,11 @@ select = ["E", "F", "W", "I", "B", "UP"]
 [tool.mypy]
 python_version = "3.13"
 strict = true
-files = ["src"]
+files = ["src", "evals"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # lets tests import the evals package
 addopts = "-m 'not live' --cov=devassist --cov-fail-under=85"
 markers = ["live: calls a real API and needs ANTHROPIC_API_KEY"]

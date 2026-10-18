@@ -12,7 +12,7 @@ All commands run the same in PowerShell and Git Bash.
 - Live API tests (need `ANTHROPIC_API_KEY`): `uv run pytest -m live --no-cov` (a few tests can't reach the coverage bar on their own)
 - Lint: `uv run ruff check .`
 - Format: `uv run ruff format .`
-- Types: `uv run mypy src`
+- Types: `uv run mypy` (checks `src/` and `evals/`, as listed in `pyproject.toml`)
 - All pre-commit hooks: `uv run pre-commit run --all-files`
 - Eval cost estimate before any paid run: `uv run python evals/run_evals.py --dry-run`
 
@@ -46,7 +46,7 @@ Target layout; some modules don't exist yet.
 
 ## Code rules
 
-- Python 3.13. Type hints on every function and method; mypy runs in strict mode on `src/`.
+- Python 3.13. Type hints on every function and method; mypy runs in strict mode on `src/` and `evals/`.
 - Pass dependencies in through constructors or parameters. Never create an LLM client, read an environment variable or open a network connection deep inside a function.
 - Depend on the protocols (`LLMClient`, `Analyzer`), not on concrete classes.
 - Raise exceptions from `exceptions.py`; never use a bare `except:` or silently swallow an error.
