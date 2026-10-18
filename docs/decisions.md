@@ -90,6 +90,14 @@ One entry per real decision: the context, the options, the choice, why, and what
   6. **Adversarial cases:** every one passes in every run.
 - **How it's judged:** each case's 3 runs are averaged first, so the case is the unit, and configurations are compared with a paired bootstrap over cases (95% intervals). Each criterion is decided on the point estimate. If a difference's interval still crosses its margin, the write-up calls that criterion inconclusive at this sample size. The 10-point margins are about two cases wide, the smallest gap 30 cases can resolve.
 - **Priorities:** quality first, then cost, with speed as a guardrail. If latency is the only criterion missed, the README reports it, and the design is not changed in ways that reduce quality to meet it.
+- **Result (Oct 18, 2026):** the design stays. On the full eval (270 runs, $1.14, `evals/results/full-summary.json`), every criterion holds on its point estimate:
+  1. Recall 92.6% against Sonnet alone's 94.4%: −1.9 points (95% CI −11.1 to +5.6). **Inconclusive.**
+  2. False alarms 8.3% against 0.0%: +8.3 points (95% CI 0 to +20.8). **Inconclusive.**
+  3. 100% of answers valid on the first try. Pass.
+  4. p95 latency 13.3 s. Pass.
+  5. Mean cost per snippet 7.7% of Sonnet alone's ($0.00090 against $0.01176). Pass.
+  6. Every adversarial case passed in every run. Pass.
+- **What the result can't show:** no run escalated, because every rewrite passed verification within two Haiku rounds. The eval therefore measured Haiku, not what the Sonnet fallback adds. Since the design and Haiku alone are identical until round 3, their runs measure run-to-run noise: they differed by 3.7 points of recall and 12.5 points of false alarms. That noise is as large as the margins, so the two inconclusive criteria need more cases, not a different design.
 
 ## D9. The eval compares three configurations, with no rival models
 
