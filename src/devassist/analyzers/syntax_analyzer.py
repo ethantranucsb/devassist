@@ -26,9 +26,9 @@ class SyntaxAnalyzer(Analyzer):
 
         Returns:
             One finding for the first syntax error, or an empty list. Code
-            nested so deeply that the parser runs out of recursion, such as a
-            few thousand chained ``+``, counts as a syntax error: Python
-            itself couldn't compile it either.
+            nested so deeply that the parser runs out of recursion counts as a
+            syntax error, since Python itself couldn't compile it either. How
+            deep that is depends on the OS: about 3,000 chained ``+`` on Windows.
         """
         try:
             ast.parse(code)

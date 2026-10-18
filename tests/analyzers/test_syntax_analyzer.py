@@ -23,8 +23,9 @@ def test_syntax_finding_points_at_the_broken_line() -> None:
 
 
 def test_code_nested_too_deeply_gives_a_finding_instead_of_crashing() -> None:
-    # About 6,000 characters: within the size limit, but past the parser's recursion limit.
-    deep = "x = " + "+".join(["1"] * 3_000) + "\n"
+    # The parser's recursion limit depends on the OS: about 3,000 chained "+" is
+    # enough on Windows but not on Linux. 100,000 is past every platform's limit.
+    deep = "x = " + "+".join(["1"] * 100_000) + "\n"
 
     findings = SyntaxAnalyzer().analyze(deep)
 

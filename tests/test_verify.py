@@ -67,7 +67,8 @@ def test_signatures_of_unparseable_code_are_none() -> None:
 
 
 def test_signatures_of_code_nested_too_deeply_are_none() -> None:
-    deep = "x = " + "+".join(["1"] * 3_000) + "\n"
+    # Past the parser's recursion limit on every OS; see test_syntax_analyzer.py.
+    deep = "x = " + "+".join(["1"] * 100_000) + "\n"
 
     assert public_signatures(deep) is None
 

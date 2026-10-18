@@ -394,9 +394,11 @@ def test_an_empty_file_is_an_input_error() -> None:
     assert llm.requests == []
 
 
-def test_code_nested_too_deeply_is_an_input_error() -> None:
+def test_code_nested_too_deeply_is_an_input_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Past the parser's recursion limit on every OS, with the size limit raised to fit it.
+    deep = "x = " + "+".join(["1"] * 100_000) + "\n"
+    monkeypatch.setenv("DEVASSIST_MAX_SNIPPET_CHARS", str(len(deep)))
     app, llm = fake_app()
-    deep = "x = " + "+".join(["1"] * 3_000) + "\n"
 
     result = runner.invoke(app, ["explain", write_snippet(deep)])
 

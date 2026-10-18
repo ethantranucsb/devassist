@@ -135,9 +135,10 @@ def test_validate_input_accepts_a_snippet_exactly_at_the_limit() -> None:
 
 
 def test_validate_input_rejects_code_nested_too_deeply() -> None:
-    # About 6,000 characters: within the size limit, but past Python's parser limit.
-    deep = "x = " + "+".join(["1"] * 3_000) + "\n"
-    settings = make_settings(max_snippet_chars=20_000)
+    # Past the parser's recursion limit on every OS (see test_syntax_analyzer.py),
+    # with the size limit raised so the nesting check is what rejects it.
+    deep = "x = " + "+".join(["1"] * 100_000) + "\n"
+    settings = make_settings(max_snippet_chars=len(deep))
 
     update = validate_input(GraphState(snippet=deep), settings=settings)
 

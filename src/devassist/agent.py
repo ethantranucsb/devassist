@@ -73,9 +73,10 @@ def _ask_model(round_number: int, prompt: str, llm: LLMClient, settings: Setting
 def _too_deeply_nested(code: str) -> bool:
     """Whether Python's parser gives up on the code because it nests too deeply.
 
-    A few thousand chained ``+`` fit well within the size limit but exhaust
-    the parser's recursion, and crash ruff and bandit as well. An ordinary
-    syntax error is not rejected here: fixing it is part of the review.
+    The limit depends on the OS: on Windows, about 3,000 chained ``+`` (some
+    6,000 characters, well within the size limit) exhaust the parser's
+    recursion and crash ruff and bandit as well. An ordinary syntax error is
+    not rejected here: fixing it is part of the review.
     """
     try:
         ast.parse(code)
