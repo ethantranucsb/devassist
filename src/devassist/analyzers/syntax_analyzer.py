@@ -6,6 +6,7 @@ from devassist.analyzers.base import Analyzer
 from devassist.models import Finding
 
 SYNTAX_ERROR_CODE = "syntax-error"
+TOO_DEEP_MESSAGE = "too deeply nested for Python's parser"
 
 
 class SyntaxAnalyzer(Analyzer):
@@ -24,7 +25,10 @@ class SyntaxAnalyzer(Analyzer):
             code: The Python source to check.
 
         Returns:
-            One finding for the first syntax error, or an empty list.
+            One finding for the first syntax error, or an empty list. Code
+            nested so deeply that the parser runs out of recursion, such as a
+            few thousand chained ``+``, counts as a syntax error: Python
+            itself couldn't compile it either.
         """
         try:
             ast.parse(code)
@@ -36,5 +40,9 @@ class SyntaxAnalyzer(Analyzer):
                     message=error.msg,
                     line=error.lineno or 1,
                 )
+            ]
+        except RecursionError:
+            return [
+                Finding(tool=self.name, code=SYNTAX_ERROR_CODE, message=TOO_DEEP_MESSAGE, line=1)
             ]
         return []

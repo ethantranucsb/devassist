@@ -101,6 +101,49 @@ def test_a_one_line_issue_names_a_single_line() -> None:
     assert "- **high** bug, line 1: No type checks." in result.stdout
 
 
+def documented(documentation: str) -> Analysis:
+    """Return a model answer with the given documentation."""
+    return answer().model_copy(update={"documentation": documentation})
+
+
+def test_documentation_headings_nest_under_the_documentation_section() -> None:
+    app, _ = fake_app(documented("# Module\n\nAdds numbers.\n\n## add(a, b)\n\nReturns a + b."))
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert "\n### Module\n" in result.stdout
+    assert "\n#### add(a, b)\n" in result.stdout
+    assert "\n# Module\n" not in result.stdout
+
+
+def test_headings_inside_code_blocks_and_hashtags_are_left_alone() -> None:
+    docs = "## Example\n\n```python\n# a comment, not a heading\nadd(1, 2)\n```\n\n#hashtag"
+    app, _ = fake_app(documented(docs))
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert "\n#### Example\n" in result.stdout
+    assert "\n# a comment, not a heading\n" in result.stdout
+    assert "\n#hashtag" in result.stdout
+
+
+def test_headings_never_go_deeper_than_level_six() -> None:
+    app, _ = fake_app(documented("##### Deep\n\n###### Deepest"))
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert "\n###### Deep\n" in result.stdout
+    assert "\n###### Deepest" in result.stdout
+
+
+def test_json_output_keeps_the_documentation_unchanged() -> None:
+    app, _ = fake_app(documented("## Module"))
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--format", "json"])
+
+    assert json.loads(result.stdout)["analysis"]["documentation"] == "## Module"
+
+
 def test_a_review_without_issues_says_so() -> None:
     app, _ = fake_app(answer())
 
@@ -348,6 +391,17 @@ def test_an_empty_file_is_an_input_error() -> None:
 
     assert result.exit_code == ExitCode.INPUT
     assert "Error: The snippet is empty." in result.stderr
+    assert llm.requests == []
+
+
+def test_code_nested_too_deeply_is_an_input_error() -> None:
+    app, llm = fake_app()
+    deep = "x = " + "+".join(["1"] * 3_000) + "\n"
+
+    result = runner.invoke(app, ["explain", write_snippet(deep)])
+
+    assert result.exit_code == ExitCode.INPUT
+    assert "nested too deeply" in result.stderr
     assert llm.requests == []
 
 

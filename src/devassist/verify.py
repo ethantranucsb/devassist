@@ -48,11 +48,11 @@ def public_signatures(code: str) -> dict[str, str] | None:
     Returns:
         A map from name (``"run"``, ``"Runner"``, ``"Runner.go"``) to its
         parameter list, or ``"class"`` for a class. ``None`` if the code
-        doesn't parse.
+        doesn't parse, including code nested too deeply for the parser.
     """
     try:
         tree = ast.parse(code)
-    except SyntaxError:
+    except (SyntaxError, RecursionError):
         return None
     signatures: dict[str, str] = {}
     for node in tree.body:

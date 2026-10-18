@@ -66,6 +66,12 @@ def test_signatures_of_unparseable_code_are_none() -> None:
     assert public_signatures("def broken(:\n    pass\n") is None
 
 
+def test_signatures_of_code_nested_too_deeply_are_none() -> None:
+    deep = "x = " + "+".join(["1"] * 3_000) + "\n"
+
+    assert public_signatures(deep) is None
+
+
 def test_rewrite_with_type_hints_and_no_private_helper_passes() -> None:
     assert verification_problems(ORIGINAL, [], TYPED, []) == []
 

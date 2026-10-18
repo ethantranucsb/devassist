@@ -20,3 +20,15 @@ def test_syntax_finding_points_at_the_broken_line() -> None:
     findings = SyntaxAnalyzer().analyze(code)
 
     assert findings[0].line == 3
+
+
+def test_code_nested_too_deeply_gives_a_finding_instead_of_crashing() -> None:
+    # About 6,000 characters: within the size limit, but past the parser's recursion limit.
+    deep = "x = " + "+".join(["1"] * 3_000) + "\n"
+
+    findings = SyntaxAnalyzer().analyze(deep)
+
+    assert len(findings) == 1
+    assert findings[0].code == "syntax-error"
+    assert findings[0].message == "too deeply nested for Python's parser"
+    assert findings[0].line == 1

@@ -156,6 +156,32 @@ def _fence(code: str) -> str:
     return "`" * max(3, longest + 1)
 
 
+_HEADING = re.compile(r"^( {0,3})(#{1,6})(?=\s|$)")
+_FENCES = ("```", "~~~")
+DOCUMENTATION_HEADING_SHIFT = 2  # devassist's own sections use levels 1 and 2
+
+
+def _demote_headings(markdown: str) -> str:
+    """Push headings down two levels, so the model's documentation nests under ours.
+
+    Lines inside fenced code blocks are left alone, so a Python ``# comment``
+    in an example isn't mistaken for a heading. Markdown has six levels, so
+    deeper headings stop at six.
+    """
+    lines = []
+    in_code_block = False
+    for line in markdown.splitlines():
+        if line.lstrip().startswith(_FENCES):
+            in_code_block = not in_code_block
+        elif not in_code_block:
+            line = _HEADING.sub(
+                lambda match: match[1] + "#" * min(6, len(match[2]) + DOCUMENTATION_HEADING_SHIFT),
+                line,
+            )
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _issue_line(issue: Issue) -> str:
     """Render one issue as a Markdown list item."""
     if issue.line_start == issue.line_end:
@@ -177,7 +203,8 @@ def render_markdown(analysis: Analysis, warnings: Sequence[str]) -> str:
         section when there are warnings.
     """
     fence = _fence(analysis.improved_code)
-    lines = ["# Summary", "", analysis.summary, "", "## Documentation", "", analysis.documentation]
+    documentation = _demote_headings(analysis.documentation)
+    lines = ["# Summary", "", analysis.summary, "", "## Documentation", "", documentation]
     lines += ["", "## Issues", ""]
     lines += [_issue_line(issue) for issue in analysis.issues] or ["No issues found."]
     lines += ["", "## Improved code", "", f"{fence}python", analysis.improved_code.rstrip("\n")]
