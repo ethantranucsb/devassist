@@ -33,6 +33,7 @@ Target layout; some modules don't exist yet.
 - `src/devassist/mcp_server.py` (stretch): an MCP server exposing one `explain_snippet` tool. A thin adapter like `cli.py`: it calls the same graph and adds no logic.
 - `tests/`: mirrors `src/`; shared fixtures in `tests/conftest.py`, sample snippets in `tests/fixtures/`.
 - `evals/`: labeled cases, the eval runner and saved results.
+- `examples/`: deliberately flawed snippets for the README and demos; excluded from ruff.
 - `docs/decisions.md`: the decision log. Read it before changing an architectural decision, and add an entry when you make one.
 
 ## Graph rules (LangGraph)

@@ -36,6 +36,8 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+extend-exclude = ["examples"]  # deliberately flawed snippets for devassist to review
+force-exclude = true  # honor the exclusion when pre-commit passes file names directly
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]
