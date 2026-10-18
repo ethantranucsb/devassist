@@ -14,6 +14,7 @@ All commands run the same in PowerShell and Git Bash.
 - Format: `uv run ruff format .`
 - Types: `uv run mypy` (checks `src/` and `evals/`, as listed in `pyproject.toml`)
 - All pre-commit hooks: `uv run pre-commit run --all-files`
+- Docker image (built and run by CI; Docker isn't installed locally): `docker build -t devassist .`
 - Eval cost estimate before any paid run: `uv run python -m evals.run_evals --dry-run`
 - Eval runs (paid; ask first): `uv run python -m evals.run_evals --smoke` for the 12 smoke cases, or without `--smoke` for all 30
 

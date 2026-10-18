@@ -1,0 +1,13 @@
+# Keep secrets and local state out of the build context. The Dockerfile copies
+# only pyproject.toml, uv.lock, README.md and src/, so this is a second guard.
+.env
+.env.*
+.git
+.venv
+**/__pycache__
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+evals/results

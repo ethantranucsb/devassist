@@ -30,3 +30,28 @@ jobs:
         run: uv run mypy
       - name: Test
         run: uv run pytest
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+      - name: Build the image
+        run: docker build -t devassist .
+      - name: Show the version
+        run: docker run --rm devassist --version
+      - name: Check the container doesn't run as root
+        run: test "$(docker run --rm --entrypoint id devassist -u)" != "0"
+      - name: Run the README's command without a key
+        # No key is set here, so devassist must read the shared file, then stop
+        # with exit code 3 and the missing-key message: proof that the CLI runs
+        # in the container and that no key is built into the image.
+        run: |
+          set +e
+          docker run --rm -e ANTHROPIC_API_KEY -v "${PWD}:/work:ro" devassist \
+            explain /work/src/devassist/metrics.py 2> stderr.txt
+          code=$?
+          set -e
+          cat stderr.txt
+          test "$code" -eq 3
+          grep -q "ANTHROPIC_API_KEY is not set" stderr.txt
