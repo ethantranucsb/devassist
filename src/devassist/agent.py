@@ -199,6 +199,21 @@ def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: 
     return builder.compile().with_config(recursion_limit=step_limit(settings.max_rounds))
 
 
+def mermaid_diagram(graph: Graph) -> str:
+    """Draw the compiled graph as a Mermaid flowchart, for the README.
+
+    Dashed arrows are conditional routes. The diagram comes from the graph
+    itself, and a test checks that the README's copy matches it.
+
+    Args:
+        graph: A graph from ``build_graph``.
+
+    Returns:
+        The Mermaid source, ending with a newline.
+    """
+    return graph.get_graph().draw_mermaid()
+
+
 def run_graph(
     graph: Graph,
     snippet: str,

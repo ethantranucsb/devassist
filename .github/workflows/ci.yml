@@ -55,3 +55,19 @@ jobs:
           cat stderr.txt
           test "$code" -eq 3
           grep -q "ANTHROPIC_API_KEY is not set" stderr.txt
+
+  pip:
+    # The README's fallback for reviewers without uv: plain pip into a fresh
+    # environment, resolving dependencies from PyPI rather than uv.lock.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v7
+      - name: Install uv, only to provide Python 3.13
+        uses: astral-sh/setup-uv@v10.3.0
+      - name: Install with pip
+        run: |
+          uv venv --seed --python 3.13 /tmp/pip-env
+          /tmp/pip-env/bin/python -m pip install .
+      - name: Run the installed command
+        run: /tmp/pip-env/bin/devassist --version
