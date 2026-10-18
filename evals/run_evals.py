@@ -376,7 +376,8 @@ def main(
     label = "smoke" if args.smoke else "full"
     results_dir.mkdir(parents=True, exist_ok=True)
     total = len(cases) * args.runs * len(configurations)
-    with (results_dir / f"{label}-runs.jsonl").open("w", encoding="utf-8") as runs_file:
+    runs_path = results_dir / f"{label}-runs.jsonl"
+    with runs_path.open("w", encoding="utf-8", newline="\n") as runs_file:
         finished = 0
 
         def save(record: RunRecord) -> None:
@@ -397,7 +398,7 @@ def main(
         created_at=datetime.now(UTC).isoformat(timespec="seconds"),
     )
     (results_dir / f"{label}-summary.json").write_text(
-        summary.model_dump_json(indent=2) + "\n", encoding="utf-8"
+        summary.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n"
     )
     write_csv(results_dir / f"{label}-cases.csv", case_rows(cases, records, configurations))
     print(render_report(summary))
@@ -406,4 +407,6 @@ def main(
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    # The HTTP client logs every request at INFO, which buries the progress lines.
+    logging.getLogger("httpx2").setLevel(logging.WARNING)
     raise SystemExit(main())
