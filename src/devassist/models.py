@@ -112,6 +112,7 @@ class Attempt(BaseModel):
     Frozen, because a round's answer never changes once it arrives.
     ``escalated`` is recorded when the model is chosen, because the model
     that answers may report a dated ID that no longer matches the setting.
+    ``retried`` says the client needed its validation retry for this round.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -122,6 +123,7 @@ class Attempt(BaseModel):
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     escalated: bool = False
+    retried: bool = False
 
 
 class RunMetrics(BaseModel):
@@ -131,6 +133,7 @@ class RunMetrics(BaseModel):
         rounds: How many model answers the run took.
         models: The model that answered each round, in order.
         escalations: How many rounds used the fallback model.
+        retries: How many rounds needed the client's validation retry.
         input_tokens: Input tokens across every round.
         output_tokens: Output tokens across every round.
         cost_usd: The total at list prices, or ``None`` if any model has no price.
@@ -143,6 +146,7 @@ class RunMetrics(BaseModel):
     rounds: int = Field(ge=0)
     models: list[str]
     escalations: int = Field(ge=0)
+    retries: int = Field(ge=0)
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     cost_usd: float | None

@@ -12,7 +12,12 @@ ANALYSIS = Analysis(
 
 
 def attempt(
-    round_number: int, model: str, input_tokens: int, output_tokens: int, escalated: bool = False
+    round_number: int,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    escalated: bool = False,
+    retried: bool = False,
 ) -> Attempt:
     """Return a recorded round with the given model and token counts."""
     return Attempt(
@@ -22,6 +27,7 @@ def attempt(
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         escalated=escalated,
+        retried=retried,
     )
 
 
@@ -49,6 +55,20 @@ def test_totals_count_every_round() -> None:
     assert metrics.output_tokens == 3_000
     assert metrics.latency_seconds == 18.4
     assert metrics.unpriced_models == []
+
+
+def test_retries_are_counted_per_round() -> None:
+    attempts = [
+        attempt(1, HAIKU, 100, 50, retried=True),
+        attempt(2, HAIKU, 100, 50),
+        attempt(3, SONNET, 100, 50, escalated=True, retried=True),
+    ]
+
+    assert summarize(attempts, latency_seconds=1.0).retries == 2
+
+
+def test_a_run_without_retries_counts_none() -> None:
+    assert summarize(MIXED_RUN, latency_seconds=18.4).retries == 0
 
 
 def test_a_dated_model_id_is_priced_by_its_prefix() -> None:

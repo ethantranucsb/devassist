@@ -67,6 +67,7 @@ def _ask_model(round_number: int, prompt: str, llm: LLMClient, settings: Setting
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         escalated=escalated,
+        retried=result.retried,
     )
 
 

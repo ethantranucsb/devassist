@@ -148,4 +148,5 @@ def _result(analysis: Analysis, responses: Sequence[Message]) -> LLMResult:
         model=responses[-1].model,
         input_tokens=sum(response.usage.input_tokens for response in responses),
         output_tokens=sum(response.usage.output_tokens for response in responses),
+        retried=len(responses) > 1,
     )
