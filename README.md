@@ -248,6 +248,29 @@ What to keep in mind:
 - **Most misses come from two cases.** In `performance-query-per-item`, every configuration, Sonnet included, reported a real bug the case didn't plant (`SUM` returns NULL for an order with no items) and mostly skipped the planted N+1 query. In `documentation-missing-docstring`, Sonnet flagged the missing docstring in all 3 runs and Haiku in 1 of 6. All 8 near misses were a different real bug on overlapping lines, not the planted issue filed under another category. The answer key stays as it was, since changing it after seeing results would undo the point of setting the bar first.
 - **Every false alarm was low severity.** This view is exploratory, not part of the bar: a `Raises` section missing an exception, or a symlink race in a path check that is arguably a fair point. Counting only medium and high issues, every configuration's false-alarm rate is 0%.
 
+### Why Haiku
+
+![Recall against cost per snippet, log scale. The design and Haiku alone cost about $0.0009 per snippet with recall of 92.6% and 88.9%; Sonnet alone costs $0.0118 with 94.4%. All three recall intervals overlap.](docs/images/cost-vs-recall.svg)
+
+The design reviews a snippet for $0.00090 against Sonnet alone's $0.01176, with recall 1.9 points lower and overlapping intervals. At 1,000 snippets a day, that's $0.90 a day (about $27 a month) against $11.76 a day (about $353 a month). The chart is drawn from `evals/results/full-runs.jsonl` by `uv run python -m evals.chart`.
+
+- **13 times cheaper, not 20.** Haiku's list prices are a twentieth of Sonnet's, but its answers ran about 1.7 times longer (about 1,460 output tokens against 853), and output tokens are the expensive kind.
+- **The fallback fired in 0 of 84 design runs** that reached the model. For now it's insurance that costs nothing until a rewrite fails verification twice.
+- **What would make me switch:**
+  - To escalating in round 2, D8's first change to try, if a larger eval put recall more than 10 points below Sonnet alone's, or false alarms more than 10 points above.
+  - To Sonnet in every round, if reviewing documentation mattered most: it flagged the missing docstring in every run, Haiku in 1 of 6.
+  - Reopening the choice, if prices moved so the design cost more than half as much as Sonnet alone.
+- **Rival models were priced, not measured** (D9):
+
+| Model | Input ($ per million tokens) | Output ($ per million tokens) |
+|---|---|---|
+| [Claude Haiku 5.5](https://platform.claude.com/docs/en/about-claude/pricing) | 0.10 | 0.50 |
+| [GPT-6 Luna](https://developers.openai.com/api/docs/pricing) | 0.10 | 0.50 |
+| [Gemini 3.5 Flash-Lite](https://ai.google.dev/gemini-api/docs/pricing) | 0.30 | 2.50 |
+| [Claude Sonnet 5.5](https://platform.claude.com/docs/en/about-claude/pricing) | 2.00 | 10.00 |
+
+List prices checked Oct 13, 2026. Tokenizers differ between providers, so the same snippet comes to a different number of tokens on each, and equal prices per token don't mean equal cost per snippet. Only measuring the rivals would settle it.
+
 ## Frameworks used and skipped
 
 | Used | For | Why |

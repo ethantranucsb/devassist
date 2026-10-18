@@ -21,7 +21,8 @@ class Price:
     output_per_million: float
 
 
-# List prices checked Oct 13, 2026 (docs/decisions.md D8). A model missing
+# List prices checked Oct 13, 2026 (docs/decisions.md D8), from
+# https://platform.claude.com/docs/en/about-claude/pricing. A model missing
 # here gets an unknown cost rather than a wrong one.
 PRICES: dict[str, Price] = {
     DEFAULT_MODEL: Price(input_per_million=0.10, output_per_million=0.50),
