@@ -7,6 +7,7 @@ LangGraph sees a function of the state alone. Nodes return only the fields
 they change.
 """
 
+import ast
 import logging
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -69,8 +70,25 @@ def _ask_model(round_number: int, prompt: str, llm: LLMClient, settings: Setting
     )
 
 
+def _too_deeply_nested(code: str) -> bool:
+    """Whether Python's parser gives up on the code because it nests too deeply.
+
+    The limit depends on the OS: on Windows, about 3,000 chained ``+`` (some
+    6,000 characters, well within the size limit) exhaust the parser's
+    recursion and crash ruff and bandit as well. An ordinary syntax error is
+    not rejected here: fixing it is part of the review.
+    """
+    try:
+        ast.parse(code)
+    except RecursionError:
+        return True
+    except SyntaxError:
+        return False  # reported by the syntax analyzer and fixed by the model instead
+    return False
+
+
 def validate_input(state: GraphState, *, settings: Settings) -> Update:
-    """Reject an empty, oversized or non-Python snippet before anything else runs."""
+    """Reject an empty, oversized, non-Python or too deeply nested snippet before anything runs."""
     if not state.snippet.strip():
         return {"error": "The snippet is empty."}
     if len(state.snippet) > settings.max_snippet_chars:
@@ -80,6 +98,8 @@ def validate_input(state: GraphState, *, settings: Settings) -> Update:
         }
     if state.language.lower() != SUPPORTED_LANGUAGE:
         return {"error": f"Only Python is supported, not {state.language!r}."}
+    if _too_deeply_nested(state.snippet):
+        return {"error": "The snippet is nested too deeply for Python's parser to read."}
     return {}
 
 

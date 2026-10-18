@@ -134,6 +134,23 @@ def test_validate_input_accepts_a_snippet_exactly_at_the_limit() -> None:
     assert validate_input(GraphState(snippet="x" * 200), settings=make_settings()) == {}
 
 
+def test_validate_input_rejects_code_nested_too_deeply() -> None:
+    # Past the parser's recursion limit on every OS (see test_syntax_analyzer.py),
+    # with the size limit raised so the nesting check is what rejects it.
+    deep = "x = " + "+".join(["1"] * 100_000) + "\n"
+    settings = make_settings(max_snippet_chars=len(deep))
+
+    update = validate_input(GraphState(snippet=deep), settings=settings)
+
+    assert update == {"error": "The snippet is nested too deeply for Python's parser to read."}
+
+
+def test_validate_input_leaves_ordinary_syntax_errors_to_the_model() -> None:
+    state = GraphState(snippet="def add(a, b)\n    return a + b\n")
+
+    assert validate_input(state, settings=make_settings()) == {}
+
+
 def test_validate_input_rejects_other_languages() -> None:
     state = GraphState(snippet=SNIPPET, language="javascript")
 
