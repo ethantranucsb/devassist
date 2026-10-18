@@ -124,6 +124,8 @@ devassist writes UTF-8, so `> review.md` saves a clean UTF-8 review in most shel
 
 Settings come from command-line flags first, then environment variables, then `.env`, then the defaults in `.env.example`.
 
+If your system blocks the `devassist` command, as some Windows security policies do with newly created programs, run it through Python instead: `uv run python -m devassist explain path/to/file.py`. Everything else is the same.
+
 | Exit code | Meaning |
 |---|---|
 | 0 | Success, including a review with warnings. |
