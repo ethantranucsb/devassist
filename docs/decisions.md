@@ -74,14 +74,22 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D8. Claude Haiku 5.5, with Claude Sonnet 5.5 as the round-3 fallback
 
-*Decided Oct 13, 2026.*
+*Decided Oct 13, 2026. Bar set Oct 17, 2026, before any eval results existed.*
 
 - **Context:** Each run makes one to three model calls, so cost and latency add up at scale.
 - **Options:** Haiku alone; Sonnet alone; Haiku with escalation to Sonnet; a larger model.
 - **Choice:** `claude-haiku-5-5` for rounds 1 and 2, and `claude-sonnet-5-5` in round 3 only. Both models and the escalation round are settings.
 - **Why:** Haiku costs a twentieth of Sonnet per token at list price ($0.10 and $0.50 per million input and output tokens, against $2.00 and $10.00, checked Oct 13, 2026). Most snippets should pass within two Haiku rounds, and Sonnet catches the hard cases.
 - **Would change if:** the design misses the bar below. The first change to try is escalating in round 2.
-- **The bar:** to be written here on Day 4, before any eval results exist.
+- **The bar:** on the 30-case eval, with 3 runs per case, the shipped design stays only if all of these hold against Sonnet alone:
+  1. **Issue recall** is no more than 10 percentage points below Sonnet alone's.
+  2. **False alarms:** the share of clean-control runs with any reported issue is no more than 10 points above Sonnet alone's.
+  3. **Valid on first try:** at least 95% of responses pass validation without the retry (D6).
+  4. **Latency:** p95 is under 30 seconds per snippet.
+  5. **Cost:** the mean cost per snippet is at most 50% of Sonnet alone's. Since a Haiku call costs about a twentieth of a Sonnet call, this holds while fewer than about 40% of runs escalate.
+  6. **Adversarial cases:** every one passes in every run.
+- **How it's judged:** each case's 3 runs are averaged first, so the case is the unit, and configurations are compared with a paired bootstrap over cases (95% intervals). Each criterion is decided on the point estimate. If a difference's interval still crosses its margin, the write-up calls that criterion inconclusive at this sample size. The 10-point margins are about two cases wide, the smallest gap 30 cases can resolve.
+- **Priorities:** quality first, then cost, with speed as a guardrail. If latency is the only criterion missed, the README reports it, and the design is not changed in ways that reduce quality to meet it.
 
 ## D9. The eval compares three configurations, with no rival models
 
