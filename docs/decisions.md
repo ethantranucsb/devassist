@@ -164,3 +164,19 @@ One entry per real decision: the context, the options, the choice, why, and what
 - **Choice:** LangSmith's own variables, from the shell only. devassist doesn't switch tracing on or off itself. It checks the variables with the same rules the LangSmith library uses, prints a notice on stderr when traces will be sent, and warns when tracing is requested without a key. Tests clear the variables (`tests/conftest.py`).
 - **Why:** It takes no code to turn on, and the variables are the ones LangSmith documents. The notice makes sure code never leaves the machine silently. Supporting `.env` would add a second way settings get loaded, plus a dependency, for an optional debugging feature. The Anthropic key isn't part of the graph's state, so it can't appear in a trace.
 - **Would change if:** tracing became part of everyday use. `.env` would then be loaded into the environment at startup with python-dotenv, which pydantic-settings already installs.
+
+## D16. How the eval scores runs
+
+*Decided Oct 18, 2026, before any eval results existed. Fills in D8's "How it's judged".*
+
+- **Context:** D8 sets the bar. The runner also needs rules for the edge cases, and they have to be fixed before results can influence them.
+- **Options:** for failed runs, leave them out or score them as the worst outcome; for matching, require the exact category or accept any issue on the right lines; for latency and cost, measure every case or only those that reach the model.
+- **Choice:**
+  - **Matching:** a reported issue matches an expected one when its category is the same and its lines overlap. A miss only on category, such as a SQL injection filed as a `bug`, counts as a miss; such near misses are counted and reported, not credited.
+  - **Failed runs:** a run that raises an error (a timeout, an API error, an answer that fails validation twice) scores the worst outcome: recall 0, a false alarm on a clean case, a fail on an adversarial case. Its latency counts. Its cost is unknown, because the error carries no token usage, so the cost comparison uses the cases where both configurations have a known cost.
+  - **Valid on first try** counts model answers: a run's rounds minus its retries. A run whose answer fails validation twice adds one invalid answer.
+  - **Latency and cost** cover the 28 cases that reach the model. The two inputs devassist rejects return in milliseconds and cost nothing, so they would flatter both.
+  - **Order:** runs alternate between configurations case by case, so a slow patch of the API slows all three alike.
+  - **Intervals:** 95% percentile bootstrap over cases, 10,000 resamples, with a fixed seed so the numbers reproduce. A criterion is inconclusive when its interval contains its threshold. The adversarial criterion has no interval: one failed run fails it.
+- **Why:** each rule closes a way a configuration could look better without being better: failing instead of answering, filing an issue under a vague category, or being measured on easier inputs or during a quieter hour. Writing them down before the first paid run keeps the pre-registration honest.
+- **Would change if:** near misses turned out to be common. The write-up would then report recall both ways, with the strict number still deciding the bar.
