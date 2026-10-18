@@ -37,6 +37,22 @@ Settings come from command-line flags first, then environment variables, then `.
 | 4 | A model or API problem: timeout, rate limit, refusal, or an answer that failed validation twice. |
 | 5 | A static analyzer failed. |
 
+### Docker
+
+For a machine without uv, build the image once, then run it from the folder that holds your code:
+
+```
+docker build -t devassist .
+docker run --rm -e ANTHROPIC_API_KEY -v "${PWD}:/work:ro" devassist explain /work/path/to/file.py
+```
+
+- `-e ANTHROPIC_API_KEY` passes the key from your shell into the container. The key is never built into the image. Set it in your shell first, or keep it in a `.env` file in the shared folder.
+- `-v "${PWD}:/work:ro"` shares the current folder with the container as `/work`, read-only, so devassist can read your code but not change it. Paths you pass start with `/work/`.
+- The command is the same in PowerShell and bash. Sharing a folder works better than piping code in, because Windows PowerShell 5.1 pipes text as ASCII.
+- The container runs as a non-root user. LangSmith tracing stays off unless you pass its variables with `-e` as well.
+
+CI builds the image and runs this command on Linux for every pull request (see `docs/decisions.md` D17). It hasn't been run on Docker Desktop for Windows.
+
 ## Tracing
 
 `--trace` prints each step of the graph to stderr as it finishes. It shows counts, rounds, models and problems, never code:

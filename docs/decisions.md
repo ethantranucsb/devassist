@@ -188,3 +188,13 @@ One entry per real decision: the context, the options, the choice, why, and what
   - **Intervals:** 95% percentile bootstrap over cases, 10,000 resamples, with a fixed seed so the numbers reproduce. A criterion is inconclusive when its interval contains its threshold. The adversarial criterion has no interval: one failed run fails it.
 - **Why:** each rule closes a way a configuration could look better without being better: failing instead of answering, filing an issue under a vague category, or being measured on easier inputs or during a quieter hour. Writing them down before the first paid run keeps the pre-registration honest.
 - **Would change if:** near misses turned out to be common. The write-up would then report recall both ways, with the strict number still deciding the bar.
+
+## D17. A Docker image built from the lockfile and checked in CI
+
+*Decided Oct 18, 2026.*
+
+- **Context:** Reviewers without uv need another way to run devassist (D1). Docker Desktop isn't installed on the development machine, and the deadline is a day away.
+- **Options:** pip only; a Docker image checked by hand once; a Docker image built and run in CI.
+- **Choice:** a `Dockerfile` on `python:3.13.9-slim` that installs the dependencies with `uv sync --locked --no-dev`, using the same uv version that wrote `uv.lock`. It copies only `pyproject.toml`, `uv.lock`, `README.md` and `src/`, and runs as a non-root user. The API key is passed at run time with `-e`. A CI job builds the image on every pull request and runs the README's command without a key: it must read the shared file, then exit with code 3 and the missing-key message.
+- **Why:** The lockfile gives the image the exact versions the tests ran against. Copying named files, plus `.dockerignore`, keeps `.env` and `.git` out of the image. A CI check catches a broken image on every change, where a one-time check by hand would only prove it worked once. The no-key run proves the CLI starts, reads a shared file and has no key built in, without paying for a model call.
+- **Would change if:** Docker Desktop were installed. The same command would then be run on Windows once and the README's caveat dropped.
