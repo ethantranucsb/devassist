@@ -1,4 +1,4 @@
-"""The README's cost-against-recall chart, drawn as SVG from the saved eval runs.
+"""The eval write-up's cost-against-recall chart, drawn as SVG from the saved eval runs.
 
 Standard library only. Regenerate it after a new full eval with:
 

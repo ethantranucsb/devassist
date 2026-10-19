@@ -35,6 +35,7 @@ Target layout; some modules don't exist yet.
 - `evals/`: labeled cases, the eval runner and saved results.
 - `examples/`: deliberately flawed snippets for the README and demos; excluded from ruff.
 - `docs/decisions.md`: the decision log. Read it before changing an architectural decision, and add an entry when you make one.
+- `docs/evaluation.md`: the eval's full results and the reasoning behind the default model; the README keeps a summary.
 
 ## Graph rules (LangGraph)
 
