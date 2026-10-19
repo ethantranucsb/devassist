@@ -1,6 +1,6 @@
 # devassist
 
-devassist is a command-line developer assistant. It takes a Python snippet, documents it, flags issues and suggests an improved version. Every suggestion is checked by static analysis (`ast`, ruff, bandit) and refined by the model, for at most 3 rounds, before the user sees it. The workflow runs as a LangGraph graph: deterministic nodes for the checks, model nodes for drafting and refining, and conditional edges for the routing. The model is Claude Haiku 5.5, with Claude Sonnet 5.5 as a fallback for the hardest cases.
+devassist is a command-line developer assistant. It takes a Python snippet, documents it, flags issues and suggests an improved version. Every suggestion is checked by static analysis (`ast`, ruff, bandit) and refined by the model, with at most 2 tries per model, before the user sees it. The workflow runs as a LangGraph graph: deterministic nodes for the checks, model nodes for drafting, reviewing and refining, and conditional edges for the routing. Claude Haiku 5.5 drafts; Claude Sonnet 5.5 reviews Haiku's passing answer and fixes what the review finds, or takes over when Haiku runs out of tries.
 
 ## Commands
 
@@ -39,9 +39,9 @@ Target layout; some modules don't exist yet.
 ## Graph rules (LangGraph)
 
 - Build the graph only in `build_graph()`. Dependencies come in as arguments, never as globals or imports inside nodes.
-- Nodes: `validate_input`, `run_static_checks`, `draft`, `verify`, `review`, `refine`, `finalize`. Only `draft`, `review` and `refine` call a model.
-- Routing: invalid input goes straight to the end with an error. After `verify`, a pass goes to `finalize`, a failure with rounds left goes to `refine`, and a failure on the last round goes to `finalize` with warnings. When the review setting is on, the first pass with a round left goes to `review` instead; missed issues go to `refine`, and none go to `finalize`.
-- Rounds 1 and 2 use the default model (Haiku); round 3 uses the fallback model (Sonnet). The escalation round and the round cap are settings, not literals.
+- Nodes: `validate_input`, `run_static_checks`, `draft`, `verify`, `review`, `refine`, `escalate`, `finalize`. Only `draft`, `review`, `refine` and `escalate` call a model.
+- Routing (`docs/decisions.md` D19): invalid input goes straight to the end with an error. After `verify`, a failure goes to `refine` on the same model while that model has tries left. When the default model runs out, it goes to `escalate`; when the fallback model runs out, it goes to `finalize` with warnings. The default model's pass goes to `review` when the review is on; missed issues go to `escalate`, and none go to `finalize`. The fallback model's pass goes to `finalize`.
+- The default model (Haiku) drafts and refines; the fallback model (Sonnet) adds and fixes what the review found, or takes over when the default model runs out. Each model gets `max_rounds` tries, a setting, not a literal.
 - The graph state is a typed model, and each node returns only the fields it changes.
 - Test each node as a plain function, and test every route through the compiled graph with `FakeLLMClient`.
 - `--trace` streams node updates from the compiled graph.
@@ -72,8 +72,8 @@ Target layout; some modules don't exist yet.
 
 - Every model call goes through an `LLMClient`, and the Anthropic SDK is imported only inside `llm/`. Don't use LangChain's `create_agent` or its chat-model wrappers; `docs/decisions.md` records why.
 - Provider: Anthropic only. OpenAI and Google were cut for time, as `docs/decisions.md` records; don't add another provider's SDK or client without updating that entry.
-- Default model: `claude-haiku-5-5` (`DEVASSIST_MODEL` or `--model`). Fallback model: `claude-sonnet-5-5` (`DEVASSIST_FALLBACK_MODEL`), used only in round 3. Log every escalation.
-- Review model: `claude-sonnet-5-5` (`DEVASSIST_REVIEW_MODEL`), used only by the `review` node, which runs only when `DEVASSIST_REVIEW` or `--review` turns it on. It must differ from the default model; `docs/decisions.md` D18 records why, and what decides whether it's on by default. The eval runner uses these overrides to compare three configurations: the shipped design, Haiku alone and Sonnet alone.
+- Default model: `claude-haiku-5-5` (`DEVASSIST_MODEL` or `--model`). Fallback model: `claude-sonnet-5-5` (`DEVASSIST_FALLBACK_MODEL`), used by `escalate` and the refines after it. Log every escalation.
+- Review model: `claude-sonnet-5-5` (`DEVASSIST_REVIEW_MODEL`), used only by the `review` node, which is on by default (`DEVASSIST_REVIEW`, or `--no-review` to skip it). It must differ from the default model; `docs/decisions.md` D18 and D19 record why. The eval runner uses these overrides to compare three configurations: the shipped design, Haiku alone and Sonnet alone.
 - Haiku with a Sonnet fallback is a recorded decision in `docs/decisions.md`. Don't change either model without updating that entry.
 - Request structured output with `client.messages.create()` and `output_config`, using the schema `anthropic.transform_schema()` builds from the Pydantic output model. Check `stop_reason` first: anything but `end_turn` is an error. Then validate with Pydantic. Don't use `messages.parse()`: it validates inside the SDK before the stop reason can be checked, and it discards the answer the retry needs (`docs/decisions.md` D14).
 - On a validation failure, retry once with the error message fed back, then raise `SchemaValidationError`.
