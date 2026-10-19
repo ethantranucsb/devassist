@@ -5,6 +5,7 @@ from devassist.config import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_MODEL,
     DEFAULT_REVIEW_MODEL,
+    ESCALATION_ROUND,
     MAX_ROUNDS,
     MAX_SNIPPET_CHARS,
     REVIEW_ENABLED,
@@ -14,7 +15,7 @@ from devassist.config import (
 )
 from devassist.exceptions import ConfigError, DevassistError, MissingAPIKeyError
 
-LIMIT_VARS = ("DEVASSIST_MAX_ROUNDS", "DEVASSIST_MAX_SNIPPET_CHARS")
+LIMIT_VARS = ("DEVASSIST_MAX_ROUNDS", "DEVASSIST_ESCALATION_ROUND", "DEVASSIST_MAX_SNIPPET_CHARS")
 REVIEW_VARS = ("DEVASSIST_REVIEW", "DEVASSIST_REVIEW_MODEL")
 ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -67,19 +68,15 @@ def test_a_different_model_reviews_the_drafting_models_work() -> None:
     assert DEFAULT_REVIEW_MODEL != DEFAULT_MODEL
 
 
-def test_the_review_is_on_by_default() -> None:
-    assert load().review is True
-
-
-def test_environment_turns_off_the_review_and_picks_its_model(
+def test_environment_turns_on_the_review_and_picks_its_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("DEVASSIST_REVIEW", "false")
+    monkeypatch.setenv("DEVASSIST_REVIEW", "true")
     monkeypatch.setenv("DEVASSIST_REVIEW_MODEL", "claude-test-reviewer")
 
     settings = load()
 
-    assert settings.review is False
+    assert settings.review is True
     assert settings.review_model == "claude-test-reviewer"
 
 
@@ -87,20 +84,19 @@ def test_loop_limits_default_to_the_config_constants() -> None:
     settings = load()
 
     assert settings.max_rounds == MAX_ROUNDS
+    assert settings.escalation_round == ESCALATION_ROUND
     assert settings.max_snippet_chars == MAX_SNIPPET_CHARS
-
-
-def test_each_model_gets_two_tries_by_default() -> None:
-    assert load().max_rounds == 2
 
 
 def test_environment_overrides_the_loop_limits(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEVASSIST_MAX_ROUNDS", "5")
+    monkeypatch.setenv("DEVASSIST_ESCALATION_ROUND", "2")
     monkeypatch.setenv("DEVASSIST_MAX_SNIPPET_CHARS", "1000")
 
     settings = load()
 
     assert settings.max_rounds == 5
+    assert settings.escalation_round == 2
     assert settings.max_snippet_chars == 1000
 
 

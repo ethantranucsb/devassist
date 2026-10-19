@@ -121,12 +121,9 @@ class Attempt(BaseModel):
     """One round's model answer, with the usage needed for cost metrics.
 
     Frozen, because a round's answer never changes once it arrives.
-    ``fallback`` says the round belongs to the fallback model's tries, which
-    the routing counts separately from the default model's. ``escalated``
-    says it also used a different model from the default; both are recorded
-    when the model is chosen, because the model that answers may report a
-    dated ID that no longer matches the setting. ``retried`` says the client
-    needed its validation retry for this round.
+    ``escalated`` is recorded when the model is chosen, because the model
+    that answers may report a dated ID that no longer matches the setting.
+    ``retried`` says the client needed its validation retry for this round.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -136,7 +133,6 @@ class Attempt(BaseModel):
     analysis: Analysis
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
-    fallback: bool = False
     escalated: bool = False
     retried: bool = False
 

@@ -2,7 +2,7 @@
 
 A command-line assistant that documents and reviews Python snippets, checking every suggestion with static analysis.
 
-You give it a snippet. It returns a summary, documentation, the issues it found and an improved version of the code. Before you see the improved code, `ast`, ruff and bandit check it, and the model fixes what they find. Claude Haiku 5.5 answers first; once its rewrite passes, Claude Sonnet 5.5 reviews it for issues Haiku missed and fixes any it finds. Nothing ever runs the code you submit.
+You give it a snippet. It returns a summary, documentation, the issues it found and an improved version of the code. Before you see the improved code, `ast`, ruff and bandit check it, and the model fixes what they find, for at most 3 rounds. Claude Haiku 5.5 answers, with Claude Sonnet 5.5 as a fallback in round 3. With `--review`, Sonnet also checks a passing answer for issues Haiku missed. Nothing ever runs the code you submit.
 
 ## Quickstart
 
@@ -29,7 +29,7 @@ pip installs the newest compatible versions of the dependencies rather than the 
 
 ## Sample output
 
-A real run on [`examples/find_users.py`](examples/find_users.py), which has four planted problems: SQL injection, a mutable default argument, one query per name, and no docstring. It was recorded before the review was on by default, so it shows Haiku's pass alone, which `--no-review` now gives.
+A real run on [`examples/find_users.py`](examples/find_users.py), which has four planted problems: SQL injection, a mutable default argument, one query per name, and no docstring.
 
 ```
 $ uv run devassist explain examples/find_users.py --trace
@@ -98,7 +98,7 @@ def find_users(db: sqlite3.Connection, names: Optional[List[str]] = None):
 
 It caught and fixed the two problems that bandit and ruff also flagged, and the rewrite passed verification in one round. It missed the query per name and didn't list the missing docstring as an issue: the same two blind spots the eval found in Haiku (see [Results](#results-oct-18-2026)). The output above is unedited.
 
-In one run with the review, Sonnet found both, plus a real bug the file didn't plant: `fetchone()` drops users who share a name and adds `None` for names with no match. All three were added and fixed in a second round, for $0.0113 and 28 seconds. That run predates D19, so Haiku made the fix; Sonnet makes it now. The fix also changed what `find_users` returns, from one entry per name to every matching row, and the rewrite still passed verification, which checks signatures, not behavior.
+In one run with `--review`, Sonnet's second review found both, plus a real bug the file didn't plant: `fetchone()` drops users who share a name and adds `None` for names with no match. Haiku added and fixed all three in a second round, for $0.0113 and 28 seconds. The fix also changed what `find_users` returns, from one entry per name to every matching row, and the rewrite still passed verification, which checks signatures, not behavior.
 
 ## Usage
 
@@ -119,8 +119,8 @@ devassist writes UTF-8, so `> review.md` saves a clean UTF-8 review in most shel
 |---|---|
 | `--format markdown\|json` | How to print the review (default `markdown`). |
 | `--model NAME` | Model for the rounds before escalation. Overrides `DEVASSIST_MODEL`. |
-| `--max-rounds N` | Most tries for each model, Haiku then Sonnet (default 2). Overrides `DEVASSIST_MAX_ROUNDS`. |
-| `--review`, `--no-review` | Whether a second model checks Haiku's passing answer for missed issues (default on). Overrides `DEVASSIST_REVIEW`; the model is `DEVASSIST_REVIEW_MODEL`. |
+| `--max-rounds N` | Most model answers per run (default 3). Overrides `DEVASSIST_MAX_ROUNDS`. |
+| `--review`, `--no-review` | Have a second model check a passing answer for missed issues (default off). Overrides `DEVASSIST_REVIEW`; the model is `DEVASSIST_REVIEW_MODEL`. |
 | `--language NAME` | The snippet's language. Only Python is supported. |
 | `--verbose`, `-v` | Log escalations and retries to stderr. |
 | `--trace` | Print each graph step to stderr as it finishes (see Tracing below). |
@@ -172,19 +172,16 @@ graph TD;
 	verify(verify)
 	review(review)
 	refine(refine)
-	escalate(escalate)
 	finalize(finalize)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> validate_input;
 	draft --> verify;
-	escalate --> verify;
 	refine --> verify;
-	review -.-> escalate;
 	review -.-> finalize;
+	review -.-> refine;
 	run_static_checks --> draft;
 	validate_input -.-> __end__;
 	validate_input -.-> run_static_checks;
-	verify -.-> escalate;
 	verify -.-> finalize;
 	verify -.-> refine;
 	verify -.-> review;
@@ -196,14 +193,11 @@ graph TD;
 
 1. **`validate_input`** rejects empty, oversized, non-Python and too deeply nested input, before any analyzer or model runs.
 2. **`run_static_checks`** runs `ast`, ruff and bandit on the snippet. Their findings go into the prompt.
-3. **`draft`** asks Haiku for a summary, documentation, issues and improved code, as structured output validated with Pydantic. An invalid answer is retried once with the errors fed back.
+3. **`draft`** asks the model for a summary, documentation, issues and improved code, as structured output validated with Pydantic. An invalid answer is retried once with the errors fed back.
 4. **`verify`** checks the improved code: it must parse, add no new ruff or bandit findings, and keep the original's public functions, classes and methods with the same parameters.
-5. **`refine`** sends verify's problems back to the same model for another try. Each model gets 2 tries (`--max-rounds`).
-6. **`review`** (on by default; `--no-review` skips it) asks a second model, Sonnet, for real problems Haiku's passing answer missed. It sees the snippet and the reported issues, not the tool findings, and checks for bugs, security, performance and documentation problems. It runs once.
-7. **`escalate`** hands the snippet to Sonnet: to add and fix the issues the review found, or to take over when Haiku runs out of tries without passing. Sonnet then has its own 2 tries, each checked by `verify`.
-8. **`finalize`** returns the answer after a pass: Haiku's if the review found nothing, otherwise Sonnet's. If Sonnet runs out of tries too, it returns the last answer with the remaining problems as warnings.
-
-In short: Haiku loops until its rewrite passes, Sonnet reviews it, Sonnet fixes whatever the review found and loops until that passes, then the run finishes (`docs/decisions.md` D19).
+5. **`review`** (off by default; turn it on with `--review`) asks a second model, Sonnet, for real problems the first review missed. It sees the snippet and the reported issues, not the tool findings, and checks for bugs, security, performance and documentation problems. It runs once, after a pass, while a round is left to act on what it finds (`docs/decisions.md` D18).
+6. **`refine`** sends verify's problems back to the model for another round, or asks it to add and fix the issues the review found, so the new rewrite is verified too. Rounds 1 and 2 use Haiku; round 3 uses Sonnet.
+7. **`finalize`** returns the answer after a pass, or after the last round with the remaining problems as warnings.
 
 The analyzers run as subprocesses on a temporary copy of the snippet, with timeouts and no shell. The code is read, never executed (`docs/decisions.md` D5). They ignore `# noqa` and `# nosec` comments, so a rewrite can't switch off the checks that verify it.
 
@@ -222,7 +216,7 @@ The analyzers run as subprocesses on a temporary copy of the snippet, with timeo
 [trace] finalize: done
 ```
 
-The review shows as a line such as `review: on claude-sonnet-5-5, 1,100 in / 250 out tokens, 1 missed issue`. When it finds something, an `escalate: … on claude-sonnet-5-5 … (escalated)` line follows, for the round in which Sonnet adds and fixes it.
+With `--review`, a line such as `review: on claude-sonnet-5-5, 1,100 in / 250 out tokens, 1 missed issue` shows the second review, followed by the round that adds and fixes what it found.
 
 **LangSmith (optional).** LangGraph can also record every run in [LangSmith](https://smith.langchain.com), LangChain's hosted tracing service. It stays off unless you set LangSmith's own variables in your shell:
 
@@ -235,9 +229,7 @@ LANGSMITH_API_KEY=<your LangSmith key>
 
 ## Evaluation
 
-The eval in `evals/` measures review quality on 30 labeled cases: 18 with a planted issue, 8 clean controls and 4 adversarial inputs. It compares the design with Haiku alone and Sonnet alone, and judges the design against a bar set before any results existed (`docs/decisions.md` D8 and D16). Runs are scored by rule, with no human or model judging. It has run twice: first on the original design (Haiku, with Sonnet in round 3), then with a second review added to it (D18).
-
-**The shipped workflow changed after both evals (D19):** the review is on by default, Sonnet makes the fix after a review, and each model gets 2 tries. Neither eval measured that exact workflow. The results below describe the designs they ran, and the runner's design configuration is now the D19 workflow.
+The eval in `evals/` measures review quality on 30 labeled cases: 18 with a planted issue, 8 clean controls and 4 adversarial inputs. It compares the design with Haiku alone and Sonnet alone, and judges the design against a bar set before any results existed (`docs/decisions.md` D8 and D16). Runs are scored by rule, with no human or model judging. It has run twice: first on the shipped design (Haiku, with Sonnet in round 3), then with the optional second review added to the design (D18), which is how the runner's design configuration now stands.
 
 ```
 uv run python -m evals.run_evals --dry-run             # estimated cost, no API calls
