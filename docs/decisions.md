@@ -34,12 +34,12 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D4. Frameworks used and skipped
 
-*Decided Oct 13, 2026.*
+*Decided Oct 13, 2026. Amended by D14: structured output goes through `messages.create()`, not `messages.parse()`.*
 
 - **Context:** The LangChain ecosystem offers orchestration, chat-model wrappers and tracing, and each adds a layer to learn and debug.
 - **Options:** the full LangChain stack; LangGraph alone; no frameworks.
 - **Choice:** LangGraph for orchestration only. No LangChain chat-model wrappers: the Anthropic SDK is called directly behind the `LLMClient` protocol. LangSmith tracing is opt-in. An MCP server is a stretch goal.
-- **Why:** Each tool is used only where it earns its place. Calling the SDK directly gives native structured output (`messages.parse()`) and exact token counts for the cost metrics, with one less layer to debug. Tracing sends snippets to a third party, so it runs only when `LANGSMITH_TRACING=true` and a key are set, and the tests clear those variables.
+- **Why:** Each tool is used only where it earns its place. Calling the SDK directly gives native structured output (a JSON schema in `messages.create()`, D14) and exact token counts for the cost metrics, with one less layer to debug. Tracing sends snippets to a third party, so it runs only when `LANGSMITH_TRACING=true` and a key are set, and the tests clear those variables.
 - **Would change if:** many providers had to be supported quickly. A LangChain adapter could then save time.
 
 ## D5. Static verification only
@@ -98,6 +98,8 @@ One entry per real decision: the context, the options, the choice, why, and what
   5. Mean cost per snippet 7.7% of Sonnet alone's ($0.00090 against $0.01176). Pass.
   6. Every adversarial case passed in every run. Pass.
 - **What the result can't show:** no run escalated, because every rewrite passed verification within two Haiku rounds. The eval therefore measured Haiku, not what the Sonnet fallback adds. Since the design and Haiku alone are identical until round 3, their runs measure run-to-run noise: they differed by 3.7 points of recall and 12.5 points of false alarms. That noise is as large as the margins, so the two inconclusive criteria need more cases, not a different design.
+- **Replication (Oct 18, 2026):** the second-review eval (D18) measured Haiku's drafts again. Across both evals, Haiku's false-alarm rate came out at 8.3%, 20.8%, 20.8% and 25.0%: 18 of 96 clean runs pooled, against Sonnet alone's 0 of 48. The 8.3% that passed criterion 2 was the low draw. As strictly defined, counting any severity, criterion 2 more likely fails than passes. Every one of those false alarms was low severity, and 10 of the 18 came from one case, `clean-safe-upload-path`, where Haiku says the docstring's `Raises` section leaves out errors such as `PermissionError`, arguably a fair point. Recall and cost replicated: 88.9% for Haiku alone and 94.4% for Sonnet alone both times, and Sonnet alone at about 13 times Haiku's cost. **The design stays:** the gap is low-severity documentation points, and `--model claude-sonnet-5-5` removes it for anyone who needs that.
+- **Would change if (added Oct 18):** devassist were used where any reported issue blocks something, such as a CI gate that fails a build on any finding. Sonnet would then be the default, because noise would cost more than tokens.
 
 ## D9. The eval compares three configurations, with no rival models
 
@@ -216,3 +218,11 @@ One entry per real decision: the context, the options, the choice, why, and what
   - **False alarms:** a reviewer told to look for misses may add nitpicks on clean code.
 - **What the eval can't show:** the reviewer's checklist was written after seeing which issues the design missed. It names categories, not cases, but gains on those two cases are partly in-sample. The 30 cases each plant one issue, so they barely test snippets with many problems, where a second review should matter most.
 - **Would change if:** with more time and budget, a reviewer from another company, starting with GPT-6 Luna, would be measured against the Sonnet reviewer on new multi-issue cases. If the review misses the bar only on cost, a cheaper reviewer comes first.
+- **Result (Oct 18, 2026): the review stays off by default.** On the eval (270 runs, $1.67, `evals/results/with-review-summary.json`), the design with the review met three of D8's criteria and missed three on their point estimates:
+  1. Recall 100% against Sonnet alone's 94.4%: +5.6 points (95% CI 0 to +16.7). Pass.
+  2. False alarms 20.8% against 0%: +20.8 points (95% CI +4.2 to +45.8). The point estimate fails; inconclusive.
+  3. 100% of answers valid on the first try, reviews included. Pass.
+  4. p95 latency 39.5 s (95% CI 19.8 to 45.0). The point estimate fails; inconclusive.
+  5. Mean cost per snippet 63.4% of Sonnet alone's ($0.00738 against $0.01164; 95% CI 48.9% to 86.5%). The point estimate fails; inconclusive.
+  6. Every adversarial case passed in every run. Pass.
+- **What the result shows:** the review did its job and cost too much doing it. It found the N+1 query in 3 of 3 runs, where Haiku alone and Sonnet alone found it in none, and the missing docstring in 3 of 3, against Haiku alone's 0 of 3. It flagged missed issues in 19 of 54 planted runs and none of the 24 clean runs, so the design's false alarms all came from Haiku's drafts (D8's replication), not the review. Its cost and latency come from the runs where it found something: those 19 averaged $0.0162 and 27.5 s, against $0.0048 and 8.6 s for the 65 where it found nothing. In 4 of them the rewrite that added the missed issues failed verification and Sonnet answered round 3, the fallback's first use; they cost about $0.04 each. A cheaper reviewer, or a review that runs only when it's likely to find something, is the change to try first.

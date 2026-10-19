@@ -2,7 +2,7 @@
 
 A command-line assistant that documents and reviews Python snippets, checking every suggestion with static analysis.
 
-You give it a snippet. It returns a summary, documentation, the issues it found and an improved version of the code. Before you see the improved code, `ast`, ruff and bandit check it, and the model fixes what they find, for at most 3 rounds. Claude Haiku 5.5 answers, with Claude Sonnet 5.5 as a fallback in round 3. Nothing ever runs the code you submit.
+You give it a snippet. It returns a summary, documentation, the issues it found and an improved version of the code. Before you see the improved code, `ast`, ruff and bandit check it, and the model fixes what they find, for at most 3 rounds. Claude Haiku 5.5 answers, with Claude Sonnet 5.5 as a fallback in round 3. With `--review`, Sonnet also checks a passing answer for issues Haiku missed. Nothing ever runs the code you submit.
 
 ## Quickstart
 
@@ -97,6 +97,8 @@ def find_users(db: sqlite3.Connection, names: Optional[List[str]] = None):
 </details>
 
 It caught and fixed the two problems that bandit and ruff also flagged, and the rewrite passed verification in one round. It missed the query per name and didn't list the missing docstring as an issue: the same two blind spots the eval found in Haiku (see [Results](#results-oct-18-2026)). The output above is unedited.
+
+In one run with `--review`, Sonnet's second review found both, plus a real bug the file didn't plant: `fetchone()` drops users who share a name and adds `None` for names with no match. Haiku added and fixed all three in a second round, for $0.0113 and 28 seconds. The fix also changed what `find_users` returns, from one entry per name to every matching row, and the rewrite still passed verification, which checks signatures, not behavior.
 
 ## Usage
 
@@ -227,15 +229,16 @@ LANGSMITH_API_KEY=<your LangSmith key>
 
 ## Evaluation
 
-The eval in `evals/` measures review quality on 30 labeled cases: 18 with a planted issue, 8 clean controls and 4 adversarial inputs. It compares the shipped design (Haiku, with Sonnet in round 3) with Haiku alone and Sonnet alone, and judges the design against a bar set before any results existed (`docs/decisions.md` D8 and D16). Runs are scored by rule, with no human or model judging.
+The eval in `evals/` measures review quality on 30 labeled cases: 18 with a planted issue, 8 clean controls and 4 adversarial inputs. It compares the design with Haiku alone and Sonnet alone, and judges the design against a bar set before any results existed (`docs/decisions.md` D8 and D16). Runs are scored by rule, with no human or model judging. It has run twice: first on the shipped design (Haiku, with Sonnet in round 3), then with the optional second review added to the design (D18), which is how the runner's design configuration now stands.
 
 ```
-uv run python -m evals.run_evals --dry-run   # estimated cost, no API calls
-uv run python -m evals.run_evals --smoke     # the 12 smoke cases
-uv run python -m evals.run_evals             # all 30 cases, 3 runs each
+uv run python -m evals.run_evals --dry-run             # estimated cost, no API calls
+uv run python -m evals.run_evals --smoke               # the 12 smoke cases
+uv run python -m evals.run_evals                       # all 30 cases, 3 runs each
+uv run python -m evals.run_evals --label with-review   # name the result files
 ```
 
-Every run except `--dry-run` calls the Anthropic API and costs money; the full eval costs about $1 to $3. Results go to `evals/results/`: each run's raw record (`<label>-runs.jsonl`), the summary with the bar's verdict (`<label>-summary.json`) and a table with one row per case (`<label>-cases.csv`). The eval never runs in CI.
+Every run except `--dry-run` calls the Anthropic API and costs money; the full eval costs about $1 to $3. Results go to `evals/results/`: each run's raw record (`<label>-runs.jsonl`), the summary with the bar's verdict (`<label>-summary.json`) and a table with one row per case (`<label>-cases.csv`). The label is `smoke` or `full` unless `--label` sets it. The eval never runs in CI.
 
 ### Results (Oct 18, 2026)
 
@@ -257,18 +260,39 @@ What to keep in mind:
 - **The design and Haiku alone ran the same thing twice.** They are identical until round 3, so the gaps between them (3.7 points of recall, 12.5 points of false alarms) are run-to-run noise. That noise is as large as the margins, which is why two criteria are inconclusive.
 - **Most misses come from two cases.** In `performance-query-per-item`, every configuration, Sonnet included, reported a real bug the case didn't plant (`SUM` returns NULL for an order with no items) and mostly skipped the planted N+1 query. In `documentation-missing-docstring`, Sonnet flagged the missing docstring in all 3 runs and Haiku in 1 of 6. All 8 near misses were a different real bug on overlapping lines, not the planted issue filed under another category. The answer key stays as it was, since changing it after seeing results would undo the point of setting the bar first.
 - **Every false alarm was low severity.** This view is exploratory, not part of the bar: a `Raises` section missing an exception, or a symlink race in a path check that is arguably a fair point. Counting only medium and high issues, every configuration's false-alarm rate is 0%.
+- **A second measurement put Haiku's false alarms higher.** The [second-review eval](#second-review-oct-18-2026) ran Haiku's drafts again. Across both evals, Haiku's false-alarm rate came out at 8.3%, 20.8%, 20.8% and 25.0%: 18 of 96 clean runs pooled, against Sonnet alone's 0 of 48. The design's 8.3% above was the low draw, so as strictly defined, counting any severity, the false-alarm criterion more likely fails than passes. Every one of those false alarms was low severity again, and 10 of the 18 came from one case, `clean-safe-upload-path`, where Haiku says the docstring's `Raises` section leaves out errors such as `PermissionError`. Recall replicated: 88.9% for Haiku alone and 94.4% for Sonnet alone, both times.
+
+### Second review (Oct 18, 2026)
+
+The second eval measured the optional review (`--review`, D18). The design ran with Sonnet checking each passing answer for missed issues; Haiku alone and Sonnet alone stayed single-pass, so Haiku alone shows what the review adds. 270 runs, $1.67, in `evals/results/with-review-*`.
+
+| | Recall | False alarms | Cost per snippet | p50 latency | p95 latency |
+|---|---|---|---|---|---|
+| Design with the review | 100.0% | 20.8% | $0.00738 | 9.2 s | 39.5 s |
+| Haiku alone | 88.9% | 25.0% | $0.00086 | 6.7 s | 14.7 s |
+| Sonnet alone | 94.4% | 0.0% | $0.01164 | 5.6 s | 13.8 s |
+
+**Verdict (D18): the review stays off by default.** It meets three of D8's criteria and misses three on their point estimates: false alarms (+20.8 points against Sonnet alone, 95% CI +4.2 to +45.8), p95 latency (39.5 s against a 30-second limit) and cost (63% of Sonnet alone's, 95% CI 49% to 86%, against a 50% limit). Under the rule set before the run, it ships off by default, behind `--review`.
+
+What it bought, and what it cost:
+
+- **It found what the single passes missed.** Recall reached 100%, against 88.9% for Haiku alone and 94.4% for Sonnet alone. It found the N+1 query in 3 of 3 runs, which Haiku alone and Sonnet alone each found in none, and the missing docstring in 3 of 3, against Haiku alone's 0 of 3.
+- **It raised no false alarms of its own.** The review flagged missed issues in 19 of 54 planted runs and in none of the 24 clean runs. Every false alarm in the design came from Haiku's first draft. The review can only add issues, so it couldn't remove those either.
+- **It's expensive when it finds something.** The 65 runs where it found nothing cost $0.0048 on average and took 8.6 s. The 19 where it found missed issues cost $0.0162, more than Sonnet alone, and took 27.5 s, because a Sonnet call is followed by a full Haiku rewrite. In 4 of them that rewrite failed verification, so Sonnet answered a third round: the fallback's first use in either eval. Those 4 runs cost about $0.04 each and took 40 to 51 seconds. The 19 flagged runs are 23% of the total, more than the slowest 5%, so they alone decide the p95 latency.
+- **The same caveats as D18.** The reviewer's checklist was written after the first eval showed which issues Haiku missed, so the gains on those cases are partly in-sample. Each case plants one issue, so the eval barely tests snippets with many problems, where a second review should matter most.
 
 ### Why Haiku
 
 ![Recall against cost per snippet, log scale. The design and Haiku alone cost about $0.0009 per snippet with recall of 92.6% and 88.9%; Sonnet alone costs $0.0118 with 94.4%. All three recall intervals overlap.](docs/images/cost-vs-recall.svg)
 
-The design reviews a snippet for $0.00090 against Sonnet alone's $0.01176, with recall 1.9 points lower and overlapping intervals. At 1,000 snippets a day, that's $0.90 a day (about $27 a month) against $11.76 a day (about $353 a month). The chart is drawn from `evals/results/full-runs.jsonl` by `uv run python -m evals.chart`.
+The design reviews a snippet for $0.00090 against Sonnet alone's $0.01176, with recall 1.9 points lower and overlapping intervals. The price is noise: on clean code, Haiku reports low-severity documentation points that Sonnet doesn't (see the second measurement above). At 1,000 snippets a day, that's $0.90 a day (about $27 a month) against $11.76 a day (about $353 a month). The chart is drawn from `evals/results/full-runs.jsonl` by `uv run python -m evals.chart`.
 
 - **13 times cheaper, not 20.** Haiku's list prices are a twentieth of Sonnet's, but its answers ran about 1.7 times longer (about 1,460 output tokens against 853), and output tokens are the expensive kind.
 - **The fallback fired in 0 of 84 design runs** that reached the model. For now it's insurance that costs nothing until a rewrite fails verification twice.
 - **What would make me switch:**
   - To escalating in round 2, D8's first change to try, if a larger eval put recall more than 10 points below Sonnet alone's, or false alarms more than 10 points above.
   - To Sonnet in every round, if reviewing documentation mattered most: it flagged the missing docstring in every run, Haiku in 1 of 6.
+  - To Sonnet in every round, if any reported issue blocked something, such as a CI gate that fails a build on any finding. Sonnet raised no false alarms in either eval, and there noise would cost more than tokens. `--model claude-sonnet-5-5` does this per run today.
   - Reopening the choice, if prices moved so the design cost more than half as much as Sonnet alone.
 - **Rival models were priced, not measured** (D9):
 
@@ -303,19 +327,25 @@ List prices checked Oct 13, 2026. Tokenizers differ between providers, so the sa
 ## Limitations
 
 - **Verification is static.** Every rewrite must parse, add no new ruff or bandit findings, and keep the original's public functions, classes and methods with the same parameters. Those checks can't tell whether a change is *correct*. When devassist reviewed its own code, Haiku "fixed" a correct import, changing `httpx2` to `httpx` because its knowledge of the Anthropic SDK was out of date, and the rewrite passed every check. Read the improved code before you use it.
+- **A single pass misses some issues only a model can see.** Haiku alone missed the N+1 query and the missing docstring in every eval run; Sonnet alone missed the N+1 query too. `--review` caught both in every run, at about 9 times Haiku's cost per snippet and with a p95 latency of 39.5 seconds.
+- **Issues aren't checked or filtered.** The model gives each issue a severity, and devassist shows them all. Nothing verifies the issue list itself, and a review with issues still exits 0. Haiku's false alarms are low-severity documentation points; `--model claude-sonnet-5-5` avoids them at about 13 times the cost.
 - **Python only**, up to 20,000 characters (see `docs/decisions.md` D12).
 - **Cost grows with the snippet, not the fix.** The improved code is always the complete snippet, so a one-line fix to a long file still pays for the whole file in output tokens, the expensive kind. Reviewing a 150-line module costs about a third of a cent with Haiku.
 
 ## With more time
 
-1. **Measure the rival models**, starting with GPT-6 Luna, which is priced like Haiku (D9).
-2. **More cases, especially clean controls.** With 8, one case flagged in all 3 runs moves the false-alarm rate by 12.5 points, more than the 10-point margin.
-3. **Cases hard enough to make the fallback fire**, to measure what Sonnet in round 3 adds.
-4. **Planted cases with nothing else wrong.** One snippet had a real bug nobody planted, and it drew attention away from the planted issue.
-5. **Keep each round's verify problems** in the eval's records. Today only the final warnings are saved.
-6. **Grade summaries and documentation** with a judge model, checked against human grades.
-7. **Run the Docker image and the pip install on Windows.** CI covers both on Linux only.
-8. **An MCP server** exposing one `explain_snippet` tool, as thin an adapter as `cli.py`.
+1. **A reviewer from another company**, starting with GPT-6 Luna, measured against the Sonnet reviewer. A differently trained model's errors are less likely to coincide with Haiku's, and Luna is priced like Haiku (D18). It would also measure a rival model, the original plan in D9.
+2. **Let the reviewer veto weak issues as well as add missed ones.** Sonnet raised no false alarms in either eval, so it could filter Haiku's low-severity documentation points instead of only adding issues.
+3. **Run the review only when it's likely to pay off, or with a cheaper reviewer.** The runs where it found something cost more than Sonnet alone and set the p95 latency.
+4. **`--min-severity` and an exit code for high-severity issues**, so devassist can gate CI without failing a build on a nitpick.
+5. **Multi-issue cases, with one-to-one matching** of reported to expected issues, to measure the review on the snippets where it should matter most.
+6. **More cases, especially clean controls.** With 8, one case flagged in all 3 runs moves the false-alarm rate by 12.5 points, more than the 10-point margin.
+7. **Cases hard enough to make the fallback fire on the first pass**, to measure what Sonnet in round 3 adds without the review.
+8. **Planted cases with nothing else wrong.** One snippet had a real bug nobody planted, and it drew attention away from the planted issue.
+9. **Keep each round's answer and verify problems** in the eval's records, so the eval can say exactly which issues the review added. Today only the final answer and warnings are saved.
+10. **Grade summaries and documentation** with a judge model, checked against human grades.
+11. **Run the Docker image and the pip install on Windows.** CI covers both on Linux only.
+12. **An MCP server** exposing one `explain_snippet` tool, as thin an adapter as `cli.py`.
 
 ## How AI was used
 
