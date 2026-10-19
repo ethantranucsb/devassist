@@ -11,6 +11,8 @@ from devassist.exceptions import MissingAPIKeyError
 
 DEFAULT_MODEL = "claude-haiku-5-5"
 DEFAULT_FALLBACK_MODEL = "claude-sonnet-5-5"
+# A different model checks the drafting model's review for missed issues (docs/decisions.md D18).
+DEFAULT_REVIEW_MODEL = DEFAULT_FALLBACK_MODEL
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,7 @@ MAX_ROUNDS = 3
 ESCALATION_ROUND = 3  # the first round that uses the fallback model
 MAX_SNIPPET_CHARS = 20_000  # about 500 lines of code
 SUPPORTED_LANGUAGE = "python"
+REVIEW_ENABLED = False  # off until the eval shows it meets D8's bar (docs/decisions.md D18)
 
 # Anthropic API
 LLM_TIMEOUT_SECONDS = 120.0  # per request; the SDK's default is 10 minutes
@@ -63,6 +66,9 @@ class Settings(BaseSettings):
             ``DEVASSIST_ESCALATION_ROUND``.
         max_snippet_chars: The longest snippet accepted, in characters, from
             ``DEVASSIST_MAX_SNIPPET_CHARS``.
+        review: Whether a second model checks a passing answer for missed issues,
+            from ``DEVASSIST_REVIEW``.
+        review_model: The model for that second review, from ``DEVASSIST_REVIEW_MODEL``.
     """
 
     model_config = SettingsConfigDict(
@@ -82,6 +88,10 @@ class Settings(BaseSettings):
     )
     max_snippet_chars: int = Field(
         default=MAX_SNIPPET_CHARS, ge=1, validation_alias="DEVASSIST_MAX_SNIPPET_CHARS"
+    )
+    review: bool = Field(default=REVIEW_ENABLED, validation_alias="DEVASSIST_REVIEW")
+    review_model: str = Field(
+        default=DEFAULT_REVIEW_MODEL, validation_alias="DEVASSIST_REVIEW_MODEL"
     )
 
     def require_api_key(self) -> str:

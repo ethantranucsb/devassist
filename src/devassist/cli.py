@@ -105,7 +105,7 @@ def _read_input(path: Path | None) -> str:
     return _read_stdin()
 
 
-def _load_settings(model: str | None, max_rounds: int | None) -> Settings:
+def _load_settings(model: str | None, max_rounds: int | None, review: bool | None) -> Settings:
     """Load settings, then apply the command-line flags, which take priority."""
     try:
         settings = Settings()
@@ -115,7 +115,7 @@ def _load_settings(model: str | None, max_rounds: int | None) -> Settings:
             for item in error.errors()
         )
         raise ConfigError(f"Invalid setting. {problems}") from error
-    flags = {"model": model, "max_rounds": max_rounds}
+    flags = {"model": model, "max_rounds": max_rounds, "review": review}
     return settings.model_copy(update={k: v for k, v in flags.items() if v is not None})
 
 
@@ -236,10 +236,12 @@ def _dollars(cost: float) -> str:
 
 
 def metrics_line(metrics: RunMetrics) -> str:
-    """Summarize a run in one line, such as ``3 rounds (1 escalation) | ... | 18.4 s``."""
+    """Summarize a run in one line, such as ``3 rounds (1 escalation), 1 review | ... | 18.4 s``."""
     rounds = _plural(metrics.rounds, "round")
     if metrics.escalations:
         rounds += f" ({_plural(metrics.escalations, 'escalation')})"
+    if metrics.reviews:
+        rounds += f", {_plural(metrics.reviews, 'review')}"
     tokens = f"{metrics.input_tokens:,} in / {metrics.output_tokens:,} out tokens"
     if metrics.cost_usd is None:
         cost = f"cost unknown (no price for {', '.join(sorted(set(metrics.unpriced_models)))})"
@@ -280,6 +282,11 @@ def describe_step(node: str, update: Mapping[str, Any]) -> list[str]:
             f"{attempt.input_tokens:,} in / {attempt.output_tokens:,} out tokens"
         )
         return [f"{line} (escalated)" if attempt.escalated else line]
+    if node == "review":
+        call = update["review"]
+        missed = _plural(len(call.review.missed_issues), "missed issue")
+        tokens = f"{call.input_tokens:,} in / {call.output_tokens:,} out tokens"
+        return [f"{node}: on {call.model}, {tokens}, {missed}"]
     if node == "verify":
         problems = update["problems"]
         if not problems:
@@ -355,6 +362,13 @@ def build_app(
             int | None,
             typer.Option(min=1, help="Most model answers per run. Overrides DEVASSIST_MAX_ROUNDS."),
         ] = None,
+        review: Annotated[
+            bool | None,
+            typer.Option(
+                "--review/--no-review",
+                help="Have a second model check for missed issues. Overrides DEVASSIST_REVIEW.",
+            ),
+        ] = None,
         language: Annotated[
             str, typer.Option(help="The snippet's language. Only Python is supported.")
         ] = SUPPORTED_LANGUAGE,
@@ -373,7 +387,7 @@ def build_app(
         with _log_to_stderr(verbose):
             try:
                 code = _read_input(path)
-                settings = _load_settings(model, max_rounds)
+                settings = _load_settings(model, max_rounds, review)
                 graph = build_graph(make_llm(settings), make_analyzers(), settings)
                 state = run_graph(graph, code, language, on_step=_print_step if trace else None)
                 if state.error is not None:

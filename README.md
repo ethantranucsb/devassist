@@ -109,7 +109,7 @@ cat path/to/file.py | uv run devassist explain           # read the snippet from
 uv run devassist --version
 ```
 
-The review goes to stdout. Errors go to stderr, and so does a one-line run summary after a Markdown review: rounds, escalations, tokens, cost at list prices and time, such as `3 rounds (1 escalation) | 6,500 in / 3,000 out tokens | $0.0164 | 18.4 s`. JSON output carries the same numbers under `metrics`. A model missing from the price table in `config.py` shows its cost as unknown rather than wrong.
+The review goes to stdout. Errors go to stderr, and so does a one-line run summary after a Markdown review: rounds, escalations, any second review, tokens, cost at list prices and time, such as `3 rounds (1 escalation) | 6,500 in / 3,000 out tokens | $0.0164 | 18.4 s`. JSON output carries the same numbers under `metrics`. A model missing from the price table in `config.py` shows its cost as unknown rather than wrong.
 
 devassist writes UTF-8, so `> review.md` saves a clean UTF-8 review in most shells. Windows PowerShell 5.1 is the exception: it re-encodes text that passes through it, so `>` saves UTF-16 and can garble non-ASCII characters, and piped input loses them. On PowerShell 5.1, pass a file path rather than piping, and use PowerShell 7 when you need a saved review to be exact.
 
@@ -118,6 +118,7 @@ devassist writes UTF-8, so `> review.md` saves a clean UTF-8 review in most shel
 | `--format markdown\|json` | How to print the review (default `markdown`). |
 | `--model NAME` | Model for the rounds before escalation. Overrides `DEVASSIST_MODEL`. |
 | `--max-rounds N` | Most model answers per run (default 3). Overrides `DEVASSIST_MAX_ROUNDS`. |
+| `--review`, `--no-review` | Have a second model check a passing answer for missed issues (default off). Overrides `DEVASSIST_REVIEW`; the model is `DEVASSIST_REVIEW_MODEL`. |
 | `--language NAME` | The snippet's language. Only Python is supported. |
 | `--verbose`, `-v` | Log escalations and retries to stderr. |
 | `--trace` | Print each graph step to stderr as it finishes (see Tracing below). |
@@ -167,17 +168,21 @@ graph TD;
 	run_static_checks(run_static_checks)
 	draft(draft)
 	verify(verify)
+	review(review)
 	refine(refine)
 	finalize(finalize)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> validate_input;
 	draft --> verify;
 	refine --> verify;
+	review -.-> finalize;
+	review -.-> refine;
 	run_static_checks --> draft;
 	validate_input -.-> __end__;
 	validate_input -.-> run_static_checks;
 	verify -.-> finalize;
 	verify -.-> refine;
+	verify -.-> review;
 	finalize --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
@@ -188,8 +193,9 @@ graph TD;
 2. **`run_static_checks`** runs `ast`, ruff and bandit on the snippet. Their findings go into the prompt.
 3. **`draft`** asks the model for a summary, documentation, issues and improved code, as structured output validated with Pydantic. An invalid answer is retried once with the errors fed back.
 4. **`verify`** checks the improved code: it must parse, add no new ruff or bandit findings, and keep the original's public functions, classes and methods with the same parameters.
-5. **`refine`** sends the problems back to the model for another round. Rounds 1 and 2 use Haiku; round 3 uses Sonnet.
-6. **`finalize`** returns the answer after a pass, or after the last round with the remaining problems as warnings.
+5. **`review`** (off by default; turn it on with `--review`) asks a second model, Sonnet, for real problems the first review missed. It sees the snippet and the reported issues, not the tool findings, and checks for bugs, security, performance and documentation problems. It runs once, after a pass, while a round is left to act on what it finds (`docs/decisions.md` D18).
+6. **`refine`** sends verify's problems back to the model for another round, or asks it to add and fix the issues the review found, so the new rewrite is verified too. Rounds 1 and 2 use Haiku; round 3 uses Sonnet.
+7. **`finalize`** returns the answer after a pass, or after the last round with the remaining problems as warnings.
 
 The analyzers run as subprocesses on a temporary copy of the snippet, with timeouts and no shell. The code is read, never executed (`docs/decisions.md` D5).
 
@@ -207,6 +213,8 @@ The analyzers run as subprocesses on a temporary copy of the snippet, with timeo
 [trace] verify: passed
 [trace] finalize: done
 ```
+
+With `--review`, a line such as `review: on claude-sonnet-5-5, 1,100 in / 250 out tokens, 1 missed issue` shows the second review, followed by the round that adds and fixes what it found.
 
 **LangSmith (optional).** LangGraph can also record every run in [LangSmith](https://smith.langchain.com), LangChain's hosted tracing service. It stays off unless you set LangSmith's own variables in your shell:
 

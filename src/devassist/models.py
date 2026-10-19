@@ -91,6 +91,17 @@ class Analysis(BaseModel):
     improved_code: NonBlankStr = Field(description="The complete improved version of the snippet.")
 
 
+class Review(BaseModel):
+    """A second reviewer's answer: the real problems the first review missed."""
+
+    missed_issues: list[Issue] = Field(
+        description=(
+            "Real problems in the snippet that the reported issues don't cover; "
+            "an empty list if the first review found them all."
+        )
+    )
+
+
 class Finding(BaseModel):
     """One problem a static analyzer reported.
 
@@ -126,16 +137,35 @@ class Attempt(BaseModel):
     retried: bool = False
 
 
+class ReviewCall(BaseModel):
+    """The second review's answer, with the usage needed for cost metrics.
+
+    Frozen, like ``Attempt``. A review isn't a round: it returns missed
+    issues, not an analysis, and fixing them takes a round of its own.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    review: Review
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    retried: bool = False
+
+
 class RunMetrics(BaseModel):
-    """What one run used: rounds, models, tokens, money and time.
+    """What one run used: rounds, reviews, models, tokens, money and time.
 
     Attributes:
         rounds: How many model answers the run took.
         models: The model that answered each round, in order.
         escalations: How many rounds used the fallback model.
-        retries: How many rounds needed the client's validation retry.
-        input_tokens: Input tokens across every round.
-        output_tokens: Output tokens across every round.
+        retries: How many model answers, rounds or review, needed the client's
+            validation retry.
+        reviews: How many second reviews ran: 0 or 1. Defaults to 0, so
+            metrics saved before reviews existed still load.
+        input_tokens: Input tokens across every round and the review.
+        output_tokens: Output tokens across every round and the review.
         cost_usd: The total at list prices, or ``None`` if any model has no price.
         unpriced_models: The models that made the cost unknown.
         latency_seconds: Wall-clock time for the whole run.
@@ -147,6 +177,7 @@ class RunMetrics(BaseModel):
     models: list[str]
     escalations: int = Field(ge=0)
     retries: int = Field(ge=0)
+    reviews: int = Field(default=0, ge=0)
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
     cost_usd: float | None
@@ -168,6 +199,7 @@ class GraphState(BaseModel):
             the end of this list instead of replacing it.
         problems: What the latest verify found wrong; empty if the latest
             answer passed.
+        review: The second review, once it has run; at most one per run.
         result: The answer shown to the user, set by ``finalize``.
         warnings: Problems the final answer still has after the last round.
         metrics: What the run used. Set by ``run_graph`` once the graph has
@@ -180,6 +212,7 @@ class GraphState(BaseModel):
     findings: list[Finding] = Field(default_factory=list)
     attempts: Annotated[list[Attempt], operator.add] = Field(default_factory=list)
     problems: list[str] = Field(default_factory=list)
+    review: ReviewCall | None = None
     result: Analysis | None = None
     warnings: list[str] = Field(default_factory=list)
     metrics: RunMetrics | None = None
