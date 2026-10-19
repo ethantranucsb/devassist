@@ -48,7 +48,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 - **Context:** Every suggested fix is checked before the user sees it, and snippets are untrusted input.
 - **Options:** run the code or its tests in a sandbox; static analysis only.
-- **Choice:** static checks only: `ast` (does it parse?), ruff (lint) and bandit (security). Submitted code is never executed, imported or passed to `eval`. Analyzers run as subprocesses with argument lists, timeouts and temporary files, never `shell=True`. They run as `python -I -m <tool>` inside the temporary folder, so a stray module in the user's current folder can't run in a tool's place.
+- **Choice:** static checks only: `ast` (does it parse?), ruff (lint) and bandit (security). Submitted code is never executed, imported or passed to `eval`. Analyzers run as subprocesses with argument lists, timeouts and temporary files, never `shell=True`. They run as `python -I -m <tool>` inside the temporary folder, so a stray module in the user's current folder can't run in a tool's place. Since Oct 19, ruff runs with `--ignore-noqa` and bandit with `--ignore-nosec`: a live run showed a model adding `# nosec` to its rewrite, and a suppression comment would let a rewrite switch off the check that verifies it, or let a snippet hide its own problems.
 - **Why:** Running untrusted code safely needs real isolation (containers, resource limits, no network), which is a project of its own. Static checks catch syntax errors, common bugs and insecure patterns with no execution risk.
 - **Would change if:** behavior had to be verified, for example whether a fix still passes the snippet's tests. Sandboxed execution would then be worth its cost.
 

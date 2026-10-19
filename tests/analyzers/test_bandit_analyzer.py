@@ -24,6 +24,14 @@ def test_broken_code_is_left_to_the_syntax_analyzer() -> None:
     assert BanditAnalyzer().analyze("def broken(:\n    pass\n") == []
 
 
+@pytest.mark.parametrize("comment", ["# nosec", "# nosec B307"])
+def test_a_nosec_comment_cannot_hide_a_finding(comment: str) -> None:
+    # A rewrite could otherwise silence the very check that verifies it.
+    findings = BanditAnalyzer().analyze(f"x = eval(input())  {comment}\n")
+
+    assert "B307" in {f.code for f in findings}
+
+
 def test_other_bandit_errors_raise(monkeypatch: pytest.MonkeyPatch) -> None:
     report = '{"results": [], "errors": [{"reason": "could not read file"}]}'
     monkeypatch.setattr(

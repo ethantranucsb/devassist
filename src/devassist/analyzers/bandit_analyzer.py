@@ -34,6 +34,8 @@ class BanditAnalyzer(Analyzer):
     """Runs bandit's security checks on the snippet.
 
     Syntax errors are skipped, because ``SyntaxAnalyzer`` already reports them.
+    ``# nosec`` comments are ignored, so neither a snippet nor a model's rewrite
+    can switch off the check that verifies it.
     """
 
     name = "bandit"
@@ -62,7 +64,7 @@ class BanditAnalyzer(Analyzer):
         """
         output = run_tool(
             "bandit",
-            ["--format", "json", "--quiet"],
+            ["--format", "json", "--quiet", "--ignore-nosec"],
             code,
             ok_exit_codes=BANDIT_OK_EXIT_CODES,
             timeout=self._timeout,

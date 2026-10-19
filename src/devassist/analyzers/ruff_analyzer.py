@@ -32,6 +32,8 @@ class RuffAnalyzer(Analyzer):
     """Runs ruff's linter on the snippet.
 
     Syntax errors are skipped, because ``SyntaxAnalyzer`` already reports them.
+    ``# noqa`` comments are ignored, so neither a snippet nor a model's rewrite
+    can switch off the check that verifies it.
     """
 
     name = "ruff"
@@ -61,6 +63,7 @@ class RuffAnalyzer(Analyzer):
             [
                 "check",
                 "--isolated",
+                "--ignore-noqa",
                 "--no-cache",
                 "--output-format=json",
                 f"--target-version={RUFF_TARGET_VERSION}",
