@@ -4,9 +4,11 @@ from pydantic import ValidationError
 from devassist.config import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_MODEL,
+    DEFAULT_REVIEW_MODEL,
     ESCALATION_ROUND,
     MAX_ROUNDS,
     MAX_SNIPPET_CHARS,
+    REVIEW_ENABLED,
     LangSmithStatus,
     Settings,
     langsmith_status,
@@ -14,7 +16,14 @@ from devassist.config import (
 from devassist.exceptions import ConfigError, DevassistError, MissingAPIKeyError
 
 LIMIT_VARS = ("DEVASSIST_MAX_ROUNDS", "DEVASSIST_ESCALATION_ROUND", "DEVASSIST_MAX_SNIPPET_CHARS")
-ENV_VARS = ("ANTHROPIC_API_KEY", "DEVASSIST_MODEL", "DEVASSIST_FALLBACK_MODEL", *LIMIT_VARS)
+REVIEW_VARS = ("DEVASSIST_REVIEW", "DEVASSIST_REVIEW_MODEL")
+ENV_VARS = (
+    "ANTHROPIC_API_KEY",
+    "DEVASSIST_MODEL",
+    "DEVASSIST_FALLBACK_MODEL",
+    *LIMIT_VARS,
+    *REVIEW_VARS,
+)
 FAKE_KEY = "test-key-not-real"
 
 
@@ -46,6 +55,29 @@ def test_environment_overrides_the_models(monkeypatch: pytest.MonkeyPatch) -> No
 
     assert settings.model == "claude-test-model"
     assert settings.fallback_model == "claude-test-fallback"
+
+
+def test_the_review_defaults_to_the_config_constants() -> None:
+    settings = load()
+
+    assert settings.review is REVIEW_ENABLED
+    assert settings.review_model == DEFAULT_REVIEW_MODEL
+
+
+def test_a_different_model_reviews_the_drafting_models_work() -> None:
+    assert DEFAULT_REVIEW_MODEL != DEFAULT_MODEL
+
+
+def test_environment_turns_on_the_review_and_picks_its_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEVASSIST_REVIEW", "true")
+    monkeypatch.setenv("DEVASSIST_REVIEW_MODEL", "claude-test-reviewer")
+
+    settings = load()
+
+    assert settings.review is True
+    assert settings.review_model == "claude-test-reviewer"
 
 
 def test_loop_limits_default_to_the_config_constants() -> None:

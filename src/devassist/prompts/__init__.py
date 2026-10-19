@@ -14,10 +14,11 @@ from functools import cache
 from importlib.resources import files
 from string import Template
 
-from devassist.models import Analysis, Finding
+from devassist.models import Analysis, Finding, Issue
 
 PROMPT_VERSION = "v1"
 NO_FINDINGS = "none"
+NO_ISSUES = "none"
 
 
 @cache
@@ -51,9 +52,32 @@ def _format_findings(findings: Sequence[Finding]) -> str:
     return _escape_closing_tag("\n".join(lines), "findings")
 
 
+def _format_issues(issues: Sequence[Issue], tag: str) -> str:
+    """List issues one per line, such as ``- lines 3-4: high security: ...``, or say there are none.
+
+    Issue descriptions come from a model that read the snippet, so the
+    block's closing tag is escaped in them as well.
+    """
+    if not issues:
+        return NO_ISSUES
+    lines = []
+    for issue in issues:
+        if issue.line_start == issue.line_end:
+            where = f"line {issue.line_start}"
+        else:
+            where = f"lines {issue.line_start}-{issue.line_end}"
+        lines.append(f"- {where}: {issue.severity} {issue.category}: {issue.description}")
+    return _escape_closing_tag("\n".join(lines), tag)
+
+
 def system_prompt() -> str:
     """Return the system prompt: the reviewer's role and the rules for its answer."""
     return _read("system")
+
+
+def review_system_prompt() -> str:
+    """Return the second reviewer's system prompt: its role, its checklist and its rules."""
+    return _read("review_system")
 
 
 def draft_prompt(snippet: str, findings: Sequence[Finding]) -> str:
@@ -96,6 +120,52 @@ def refine_prompt(
         findings=_format_findings(findings),
         previous_code=_code_block(previous.improved_code, "previous_code"),
         problems=_escape_closing_tag(problem_lines, "problems"),
+    )
+
+
+def review_prompt(snippet: str, issues: Sequence[Issue]) -> str:
+    """Return the prompt asking a second model for the problems the first review missed.
+
+    The static analysis findings are left out: the first review already had
+    them, and the second shouldn't be anchored on them.
+
+    Args:
+        snippet: The submitted Python code.
+        issues: The issues the latest answer reported.
+
+    Returns:
+        The user prompt, with the numbered snippet and the reported issues in their tags.
+    """
+    return Template(_read("review")).substitute(
+        snippet=_code_block(snippet, "snippet"),
+        reported_issues=_format_issues(issues, "reported_issues"),
+    )
+
+
+def revise_prompt(
+    snippet: str,
+    findings: Sequence[Finding],
+    previous: Analysis,
+    missed: Sequence[Issue],
+) -> str:
+    """Return the prompt for a round that adds and fixes what the second review found.
+
+    Args:
+        snippet: The submitted Python code.
+        findings: What the static analyzers reported for the snippet.
+        previous: The answer the second review checked.
+        missed: The problems the second review found missing from it.
+
+    Returns:
+        The user prompt, with the snippet, findings, previous issues and code,
+        and the missed issues each in their own tags.
+    """
+    return Template(_read("revise")).substitute(
+        snippet=_code_block(snippet, "snippet"),
+        findings=_format_findings(findings),
+        reported_issues=_format_issues(previous.issues, "reported_issues"),
+        previous_code=_code_block(previous.improved_code, "previous_code"),
+        missed_issues=_format_issues(missed, "missed_issues"),
     )
 
 

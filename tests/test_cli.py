@@ -14,7 +14,7 @@ from devassist.config import LangSmithStatus
 from devassist.exceptions import AnalyzerError, DevassistError, LLMError, SchemaValidationError
 from devassist.llm import FakeLLMClient
 from devassist.llm.fake import ScriptStep
-from devassist.models import Analysis, Finding, Issue
+from devassist.models import Analysis, Finding, Issue, Review
 
 ENV_VARS = (
     "ANTHROPIC_API_KEY",
@@ -23,6 +23,8 @@ ENV_VARS = (
     "DEVASSIST_MAX_ROUNDS",
     "DEVASSIST_ESCALATION_ROUND",
     "DEVASSIST_MAX_SNIPPET_CHARS",
+    "DEVASSIST_REVIEW",
+    "DEVASSIST_REVIEW_MODEL",
 )
 SNIPPET = "def add(a, b):\n    return a+b\n"
 GOOD_CODE = "def add(a: int, b: int) -> int:\n    return a + b\n"
@@ -231,6 +233,41 @@ def test_the_model_flag_beats_the_environment(monkeypatch: pytest.MonkeyPatch) -
     assert llm.requests[0].model == "claude-from-flag"
 
 
+def test_the_review_flag_adds_a_second_review_by_the_review_model() -> None:
+    app, llm = fake_app(answer(), Review(missed_issues=[]))
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--review"])
+
+    assert result.exit_code == ExitCode.OK
+    assert [request.model for request in llm.requests] == ["claude-haiku-5-5", "claude-sonnet-5-5"]
+
+
+def test_there_is_no_review_without_the_flag_or_the_setting() -> None:
+    app, llm = fake_app(answer())
+
+    runner.invoke(app, ["explain", write_snippet()])
+
+    assert len(llm.requests) == 1
+
+
+def test_the_no_review_flag_beats_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEVASSIST_REVIEW", "true")
+    app, llm = fake_app(answer())
+
+    runner.invoke(app, ["explain", write_snippet(), "--no-review"])
+
+    assert len(llm.requests) == 1
+
+
+def test_the_metrics_line_counts_the_review_and_its_cost() -> None:
+    app, _ = fake_app(answer(), Review(missed_issues=[]))
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--review"])
+
+    # One Haiku round at $0.000035, then Sonnet's review of 100 in / 50 out: $0.0007.
+    assert "1 round, 1 review | 200 in / 100 out tokens | $0.000735 | " in result.stderr
+
+
 def test_a_round_cap_of_one_stops_after_one_call_and_prints_warnings() -> None:
     app, llm = fake_app(answer(BAD_CODE))
 
@@ -305,6 +342,17 @@ def test_trace_marks_an_escalated_round() -> None:
 
     expected = "refine: round 3 on claude-sonnet-5-5, 100 in / 50 out tokens (escalated)"
     assert expected in trace_lines(result.stderr)
+
+
+def test_trace_shows_the_review_and_counts_what_it_found_missing() -> None:
+    app, _ = fake_app(answer(), Review(missed_issues=[ISSUE]), answer(issues=[ISSUE]))
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--trace", "--review"])
+
+    lines = trace_lines(result.stderr)
+    assert "review: on claude-sonnet-5-5, 100 in / 50 out tokens, 1 missed issue" in lines
+    assert "refine: round 2 on claude-haiku-5-5, 100 in / 50 out tokens" in lines
+    assert "No type checks." not in result.stderr
 
 
 def test_trace_counts_the_warnings_left_at_the_end() -> None:

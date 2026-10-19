@@ -1,5 +1,9 @@
 """The LangGraph workflow: static checks, a draft, then verify and refine up to the round cap.
 
+When the review setting is on, a passing answer also goes to a second model,
+which looks for issues the first review missed; any it finds are added and
+fixed in another round, which verify checks like any other.
+
 This is the only module that imports LangGraph. Each node is a plain function
 of the state plus the dependencies it needs, so tests can call it directly.
 ``build_graph`` binds those dependencies with ``functools.partial``, so
@@ -21,8 +25,15 @@ from devassist.analyzers import Analyzer
 from devassist.config import SUPPORTED_LANGUAGE, Settings
 from devassist.llm import LLMClient, LLMRequest
 from devassist.metrics import summarize
-from devassist.models import Analysis, Attempt, Finding, GraphState
-from devassist.prompts import draft_prompt, refine_prompt, system_prompt
+from devassist.models import Analysis, Attempt, Finding, GraphState, Review, ReviewCall
+from devassist.prompts import (
+    draft_prompt,
+    refine_prompt,
+    review_prompt,
+    review_system_prompt,
+    revise_prompt,
+    system_prompt,
+)
 from devassist.verify import verification_problems
 
 logger = logging.getLogger(__name__)
@@ -125,10 +136,40 @@ def verify(state: GraphState, *, analyzers: Sequence[Analyzer]) -> Update:
     return {"problems": problems}
 
 
+def review(state: GraphState, *, llm: LLMClient, settings: Settings) -> Update:
+    """Ask the review model for real issues the latest answer missed."""
+    issues = state.attempts[-1].analysis.issues
+    logger.info("Second review on %s", settings.review_model)
+    result = llm.generate(
+        LLMRequest(
+            model=settings.review_model,
+            system=review_system_prompt(),
+            prompt=review_prompt(state.snippet, issues),
+            output_type=Review,
+        )
+    )
+    call = ReviewCall(
+        model=result.model,
+        review=result.output,
+        input_tokens=result.input_tokens,
+        output_tokens=result.output_tokens,
+        retried=result.retried,
+    )
+    return {"review": call}
+
+
 def refine(state: GraphState, *, llm: LLMClient, settings: Settings) -> Update:
-    """Ask the model to fix the problems verify found in its latest answer."""
+    """Ask the model to fix what verify found, or to add and fix what the review found.
+
+    Verify's problems come first. A latest answer that passed verify reaches
+    this node only after a review that found missed issues.
+    """
     latest = state.attempts[-1]
-    prompt = refine_prompt(state.snippet, state.findings, latest.analysis, state.problems)
+    if not state.problems and state.review is not None:
+        missed = state.review.review.missed_issues
+        prompt = revise_prompt(state.snippet, state.findings, latest.analysis, missed)
+    else:
+        prompt = refine_prompt(state.snippet, state.findings, latest.analysis, state.problems)
     return {"attempts": [_ask_model(latest.round + 1, prompt, llm, settings)]}
 
 
@@ -143,36 +184,58 @@ def route_after_validation(state: GraphState) -> str:
 
 
 def route_after_verify(state: GraphState, *, settings: Settings) -> str:
-    """Finalize a pass or a failure on the last round; refine a failure with rounds left."""
-    if not state.problems or state.attempts[-1].round >= settings.max_rounds:
-        return "finalize"
-    return "refine"
+    """Refine a failure with rounds left; review a first pass when the review is on.
+
+    A pass is reviewed only once, and only while a round is left to fix what
+    the review finds. Everything else goes to finalize: a pass, or a failure
+    on the last round.
+    """
+    rounds_left = state.attempts[-1].round < settings.max_rounds
+    if state.problems:
+        return "refine" if rounds_left else "finalize"
+    if settings.review and state.review is None and rounds_left:
+        return "review"
+    return "finalize"
 
 
-def step_limit(max_rounds: int) -> int:
+def route_after_review(state: GraphState) -> str:
+    """Refine to add and fix any missed issues; finalize if the review found none."""
+    if state.review is not None and state.review.review.missed_issues:
+        return "refine"
+    return "finalize"
+
+
+def step_limit(max_rounds: int, *, review: bool = False) -> int:
     """Count the LangGraph steps in the longest possible run.
 
     The longest run is validate_input, run_static_checks, draft and verify,
     then refine and verify for each later round, then finalize. LangGraph
-    also counts its own starting step.
+    also counts its own starting step. With the review on, one review can
+    run before a later round, so a round cap above one adds a step.
 
     Args:
         max_rounds: The round cap.
+        review: Whether the second review is on.
 
     Returns:
         The step limit that lets the longest run finish, and nothing longer.
     """
-    return 2 * max_rounds + 4
+    review_steps = 1 if review and max_rounds > 1 else 0
+    return 2 * max_rounds + 4 + review_steps
 
 
 def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: Settings) -> Graph:
     """Build and compile the graph, with its dependencies bound to the nodes.
 
+    The review node is always part of the graph, so the diagram shows the
+    whole design; the review setting decides whether a run ever reaches it.
+
     Args:
-        llm_client: Answers the draft and refine prompts.
+        llm_client: Answers the draft, refine and review prompts.
         analyzers: Check the snippet and every rewrite. Include ``SyntaxAnalyzer``,
             or a rewrite that doesn't parse can't be caught.
-        settings: The models, the round cap, the escalation round and the size limit.
+        settings: The models, the round cap, the escalation round, the size
+            limit and the review.
 
     Returns:
         The compiled graph. Its step limit is exactly what the longest run
@@ -183,6 +246,7 @@ def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: 
     builder.add_node("run_static_checks", partial(run_static_checks, analyzers=analyzers))
     builder.add_node("draft", partial(draft, llm=llm_client, settings=settings))
     builder.add_node("verify", partial(verify, analyzers=analyzers))
+    builder.add_node("review", partial(review, llm=llm_client, settings=settings))
     builder.add_node("refine", partial(refine, llm=llm_client, settings=settings))
     builder.add_node("finalize", finalize)
 
@@ -193,11 +257,15 @@ def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: 
     builder.add_edge("run_static_checks", "draft")
     builder.add_edge("draft", "verify")
     builder.add_conditional_edges(
-        "verify", partial(route_after_verify, settings=settings), ["refine", "finalize"]
+        "verify",
+        partial(route_after_verify, settings=settings),
+        ["refine", "review", "finalize"],
     )
+    builder.add_conditional_edges("review", route_after_review, ["refine", "finalize"])
     builder.add_edge("refine", "verify")
     builder.add_edge("finalize", END)
-    return builder.compile().with_config(recursion_limit=step_limit(settings.max_rounds))
+    limit = step_limit(settings.max_rounds, review=settings.review)
+    return builder.compile().with_config(recursion_limit=limit)
 
 
 def mermaid_diagram(graph: Graph) -> str:
@@ -255,5 +323,5 @@ def run_graph(
                 # A node that changed nothing streams None rather than {}.
                 on_step(node, update or {})
     state = GraphState.model_validate(final)
-    metrics = summarize(state.attempts, latency_seconds=clock() - start)
+    metrics = summarize(state.attempts, latency_seconds=clock() - start, review=state.review)
     return state.model_copy(update={"metrics": metrics})

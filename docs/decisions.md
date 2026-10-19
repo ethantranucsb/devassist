@@ -141,7 +141,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D13. How the graph handles failures
 
-*Decided Oct 16, 2026.*
+*Decided Oct 16, 2026. Amended by D18: with the review on, the step limit has one more step.*
 
 - **Context:** A run can fail in three ways: the input is unusable, a model call fails, or a rewrite still fails verification after the last round.
 - **Options:** record every failure in the state; raise every failure; treat each kind on its own terms.
@@ -198,3 +198,21 @@ One entry per real decision: the context, the options, the choice, why, and what
 - **Choice:** a `Dockerfile` on `python:3.13.9-slim` that installs the dependencies with `uv sync --locked --no-dev`, using the same uv version that wrote `uv.lock`. It copies only `pyproject.toml`, `uv.lock`, `README.md` and `src/`, and runs as a non-root user. The API key is passed at run time with `-e`. A CI job builds the image on every pull request and runs the README's command without a key: it must read the shared file, then exit with code 3 and the missing-key message.
 - **Why:** The lockfile gives the image the exact versions the tests ran against. Copying named files, plus `.dockerignore`, keeps `.env` and `.git` out of the image. A CI check catches a broken image on every change, where a one-time check by hand would only prove it worked once. The no-key run proves the CLI starts, reads a shared file and has no key built in, without paying for a model call.
 - **Would change if:** Docker Desktop were installed. The same command would then be run on Windows once and the README's caveat dropped.
+
+## D18. A second review by a different model, on by default only if it meets D8's bar
+
+*Decided Oct 18, 2026, before any eval run with the review.*
+
+- **Context:** `verify` checks the rewrite, not the review. Nothing at run time checks whether the review missed an issue. On the full eval (D8's result), the design's misses came from two planted issues that no static tool flags: a database query inside a loop (`performance-query-per-item`) and a missing docstring (`documentation-missing-docstring`). On the README's demo file, one review reported 2 of 4 planted problems, missing the same two kinds.
+- **Options:** no run-time check, with misses measured offline only (as built until now); a second pass by the same model; a second review by a different Anthropic model; a second review by another company's model, such as GPT-6 Luna; a second reviewer that rewrites the whole answer rather than listing what's missing.
+- **Choice:** a `review` node that asks Claude Sonnet 5.5 (`DEVASSIST_REVIEW_MODEL`) for real problems the latest passing answer missed. It sees the numbered snippet and the reported issues, not the static findings. Its prompt goes through bugs, security, performance and documentation in turn and leaves out style. It returns only the missed issues; any it finds go back to `refine`, which adds and fixes them in a round that `verify` checks like any other. The review runs once per run, after a pass, and only while a round is left, so the round cap still bounds the run, with at most one extra call. With the review on and a cap above one, the step limit becomes `2 × max_rounds + 5`. `DEVASSIST_REVIEW` and `--review` turn it on.
+- **Why:**
+  - **A different model:** reviewing one model's work with another is the usual way to catch its blind spots, because their errors are less likely to coincide. Within one company they may still overlap. On the eval, Sonnet alone also missed the N+1 query in all 3 runs, though it found the missing docstring in 3 of 3, against Haiku's 1 of 6.
+  - **Missed issues only:** a short answer keeps the review cheap, and the fix still goes through `verify`.
+  - **No tool findings:** the first review already had them. Leaving them out keeps the reviewer from anchoring on what's already covered.
+  - **Not another company's model, for now:** its errors would likely be more independent, and GPT-6 Luna costs about what Haiku does. But it needs a second SDK, and a second API key for anyone running devassist, and it sends snippets to a second company (D7). It didn't fit the deadline.
+- **How it's decided, set before any run:** the eval's design configuration gets the review; Haiku alone and Sonnet alone stay single-pass, so Haiku alone now shows what the review adds. The review ships on by default only if the design with the review meets all six of D8's criteria, judged as D8 and D16 describe, with the bar unchanged. Otherwise it ships off by default, behind `--review`, and the README reports which criterion it missed. Two criteria are at risk:
+  - **Cost:** a Sonnet call in every run, estimated before measurement at roughly 45 to 60% of Sonnet alone's cost, against the 50% limit.
+  - **False alarms:** a reviewer told to look for misses may add nitpicks on clean code.
+- **What the eval can't show:** the reviewer's checklist was written after seeing which issues the design missed. It names categories, not cases, but gains on those two cases are partly in-sample. The 30 cases each plant one issue, so they barely test snippets with many problems, where a second review should matter most.
+- **Would change if:** with more time and budget, a reviewer from another company, starting with GPT-6 Luna, would be measured against the Sonnet reviewer on new multi-issue cases. If the review misses the bar only on cost, a cheaper reviewer comes first.
