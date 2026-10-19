@@ -108,7 +108,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 - **Context:** The plan also compared the design against GPT-6 Luna and Gemini 3.5 Flash-Lite.
 - **Options:** two rivals; one rival; none.
 - **Choice:** none. The eval compares the shipped design, Haiku alone and Sonnet alone.
-- **Why:** Two more clients, API keys and billing setups didn't fit the six-day schedule. The three configurations still answer the core question: what the fallback saves compared with Sonnet alone, and what it costs compared with Haiku alone. The README compares rivals by list price only, labeled as not measured.
+- **Why:** Two more clients, API keys and billing setups didn't fit the six-day schedule. The three configurations still answer the core question: what the fallback saves compared with Sonnet alone, and what it costs compared with Haiku alone. The eval write-up (`docs/evaluation.md`, part of the README until Oct 19) compares rivals by list price only, labeled as not measured.
 - **Would change if:** time allows after submission, or a reviewer needs cross-provider evidence. GPT-6 Luna would come first, since it is priced the same as Haiku.
 
 ## D10. One pull request per task, merged only on green CI
