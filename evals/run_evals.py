@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from devassist.agent import Graph, build_graph, model_for_round, run_graph
+from devassist.agent import Graph, build_graph, run_graph
 from devassist.analyzers import Analyzer, default_analyzers
 from devassist.config import LangSmithStatus, Settings, langsmith_status
 from devassist.exceptions import DevassistError
@@ -227,9 +227,9 @@ def estimate_cost(
 
     Returns:
         The typical and worst-case cost. Inputs devassist rejects cost nothing.
-        With the review on, both include one review call: the typical run
-        passes, is reviewed and needs nothing more; the worst also uses every
-        round after it.
+        The typical run passes on its first try and, with the review on, is
+        reviewed and needs nothing more. The worst uses every try of the
+        default model, the review if it's on, then every try of the fallback.
     """
     settings = settings_for(configuration, base_settings)
     fixed_input = _tokens(system_prompt()) + _tokens(json.dumps(output_schema(Analysis)))
@@ -243,12 +243,11 @@ def estimate_cost(
         code = _tokens(case.code)
         draft_input = fixed_input + _tokens(draft_prompt(case.code, []))
         output = OUTPUT_TOKENS_PER_CODE_TOKEN * code + OUTPUT_TOKENS_FIXED
-        first = _call_cost(model_for_round(1, settings), draft_input, output)
+        first = _call_cost(settings.model, draft_input, output)
         # A later round also sends back the previous rewrite, about the code's size.
-        later = math.fsum(
-            _call_cost(model_for_round(round_number, settings), draft_input + code, output)
-            for round_number in range(2, settings.max_rounds + 1)
-        )
+        later_input = draft_input + code
+        later = (settings.max_rounds - 1) * _call_cost(settings.model, later_input, output)
+        later += settings.max_rounds * _call_cost(settings.fallback_model, later_input, output)
         review = 0.0
         if settings.review:
             # The review reads the snippet and the reported issues, about the fixed output.
@@ -276,7 +275,7 @@ def render_estimate(
             *format_table(["config", "typical", "worst"], rows),
             "",
             "typical: every run passes in its first round, and any review finds nothing missed.",
-            "worst: every run uses every round.",
+            "worst: every run uses every try of both models.",
             f"Token counts are rough (about {CHARS_PER_TOKEN} characters per token); "
             "the smoke run measures real ones.",
         ]

@@ -11,7 +11,6 @@ from devassist.config import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_MODEL,
     DEFAULT_REVIEW_MODEL,
-    ESCALATION_ROUND,
     MAX_ROUNDS,
     MAX_SNIPPET_CHARS,
     Settings,
@@ -27,8 +26,9 @@ class Configuration:
 
     Attributes:
         name: What the results call it.
-        model: The model for the rounds before the escalation round.
-        fallback_model: The model from the escalation round on.
+        model: The model that drafts and refines first.
+        fallback_model: The model that takes over after a review that found
+            missed issues, or when the default model runs out of tries.
         review: Whether the review model checks a passing answer for missed issues.
     """
 
@@ -49,9 +49,9 @@ CONFIGURATIONS: dict[str, Configuration] = {
 
 
 def settings_for(configuration: Configuration, base: Settings) -> Settings:
-    """Apply a configuration's models and review, with the loop at its shipped values.
+    """Apply a configuration's models and review, with the loops at their shipped values.
 
-    The round cap, escalation round, size limit and review model are reset
+    The tries for each model, the size limit and the review model are reset
     to their defaults, so a value in the developer's ``.env`` can't change
     what the eval measures.
 
@@ -69,7 +69,6 @@ def settings_for(configuration: Configuration, base: Settings) -> Settings:
             "review": configuration.review,
             "review_model": DEFAULT_REVIEW_MODEL,
             "max_rounds": MAX_ROUNDS,
-            "escalation_round": ESCALATION_ROUND,
             "max_snippet_chars": MAX_SNIPPET_CHARS,
         }
     )

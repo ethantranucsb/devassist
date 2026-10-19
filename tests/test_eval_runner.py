@@ -14,7 +14,6 @@ from devassist.config import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_MODEL,
     DEFAULT_REVIEW_MODEL,
-    ESCALATION_ROUND,
     MAX_ROUNDS,
     MAX_SNIPPET_CHARS,
     Settings,
@@ -118,16 +117,12 @@ def test_the_configurations_use_the_shipped_model_names() -> None:
 
 
 def test_settings_for_resets_the_loop_settings_to_their_shipped_values() -> None:
-    local = Settings.model_construct(max_rounds=1, escalation_round=2, max_snippet_chars=10)
+    local = Settings.model_construct(max_rounds=1, max_snippet_chars=10)
 
     settings = settings_for(CONFIGURATIONS["haiku"], local)
 
     assert (settings.model, settings.fallback_model) == (DEFAULT_MODEL, DEFAULT_MODEL)
-    assert (settings.max_rounds, settings.escalation_round, settings.max_snippet_chars) == (
-        MAX_ROUNDS,
-        ESCALATION_ROUND,
-        MAX_SNIPPET_CHARS,
-    )
+    assert (settings.max_rounds, settings.max_snippet_chars) == (MAX_ROUNDS, MAX_SNIPPET_CHARS)
 
 
 def test_only_the_design_gets_the_second_review() -> None:

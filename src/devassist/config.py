@@ -31,12 +31,11 @@ PRICES: dict[str, Price] = {
     DEFAULT_FALLBACK_MODEL: Price(input_per_million=2.00, output_per_million=10.00),
 }
 
-# The draft, verify and refine loop
-MAX_ROUNDS = 3
-ESCALATION_ROUND = 3  # the first round that uses the fallback model
+# The verify loops (docs/decisions.md D19)
+MAX_ROUNDS = 2  # tries for each model: the default model's, then the fallback's
 MAX_SNIPPET_CHARS = 20_000  # about 500 lines of code
 SUPPORTED_LANGUAGE = "python"
-REVIEW_ENABLED = False  # off until the eval shows it meets D8's bar (docs/decisions.md D18)
+REVIEW_ENABLED = True  # on by default since D19, which overrides D18's result
 
 # Anthropic API
 LLM_TIMEOUT_SECONDS = 120.0  # per request; the SDK's default is 10 minutes
@@ -58,16 +57,15 @@ class Settings(BaseSettings):
 
     Attributes:
         anthropic_api_key: The Anthropic API key, from ``ANTHROPIC_API_KEY``.
-        model: The model for rounds before the escalation round, from ``DEVASSIST_MODEL``.
-        fallback_model: The model from the escalation round on, from
+        model: The model that drafts and refines first, from ``DEVASSIST_MODEL``.
+        fallback_model: The model that adds and fixes what the review found, or
+            takes over when the default model runs out of tries, from
             ``DEVASSIST_FALLBACK_MODEL``.
-        max_rounds: The most model answers per run, from ``DEVASSIST_MAX_ROUNDS``.
-        escalation_round: The first round that uses the fallback model, from
-            ``DEVASSIST_ESCALATION_ROUND``.
+        max_rounds: The most tries for each model, from ``DEVASSIST_MAX_ROUNDS``.
         max_snippet_chars: The longest snippet accepted, in characters, from
             ``DEVASSIST_MAX_SNIPPET_CHARS``.
-        review: Whether a second model checks a passing answer for missed issues,
-            from ``DEVASSIST_REVIEW``.
+        review: Whether a second model checks the default model's passing
+            answer for missed issues, from ``DEVASSIST_REVIEW``.
         review_model: The model for that second review, from ``DEVASSIST_REVIEW_MODEL``.
     """
 
@@ -83,9 +81,6 @@ class Settings(BaseSettings):
         default=DEFAULT_FALLBACK_MODEL, validation_alias="DEVASSIST_FALLBACK_MODEL"
     )
     max_rounds: int = Field(default=MAX_ROUNDS, ge=1, validation_alias="DEVASSIST_MAX_ROUNDS")
-    escalation_round: int = Field(
-        default=ESCALATION_ROUND, ge=1, validation_alias="DEVASSIST_ESCALATION_ROUND"
-    )
     max_snippet_chars: int = Field(
         default=MAX_SNIPPET_CHARS, ge=1, validation_alias="DEVASSIST_MAX_SNIPPET_CHARS"
     )
