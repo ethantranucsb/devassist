@@ -45,7 +45,7 @@ The second eval measured the optional review (`--review`, D18). The design ran w
 | Haiku alone | 88.9% | 25.0% | $0.00086 | 6.7 s | 14.7 s |
 | Sonnet alone | 94.4% | 0.0% | $0.01164 | 5.6 s | 13.8 s |
 
-**Verdict (D18): the review stays off by default.** It meets three of D8's criteria and misses three on their point estimates: false alarms (+20.8 points against Sonnet alone, 95% CI +4.2 to +45.8), p95 latency (39.5 s against a 30-second limit) and cost (63% of Sonnet alone's, 95% CI 49% to 86%, against a 50% limit). Under the rule set before the run, it ships off by default, behind `--review`.
+**Verdict (D18): the review stays off by default.** It meets three of D8's criteria and misses three on their point estimates: false alarms (+20.8 points against Sonnet alone, 95% CI +4.2 to +45.8), p95 latency (39.5 s against a 30-second limit) and cost (63% of Sonnet alone's, 95% CI 49% to 86%, against a 50% limit). Under the rule set before the run, it ships off by default, behind `--review`. D21 later turned it on by default anyway, as a deliberate choice of recall over cost and speed.
 
 What it bought, and what it cost:
 

@@ -39,10 +39,14 @@ runner = CliRunner()
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Run in an empty folder with devassist's variables cleared, so no real .env or key is used."""
+    """Run in an empty folder with devassist's variables cleared, so no real .env or key is used.
+
+    The review is turned off so most tests script a single pass; the review tests turn it back on.
+    """
     monkeypatch.chdir(tmp_path)
     for name in ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DEVASSIST_REVIEW", "false")
 
 
 class FailingAnalyzer(Analyzer):
@@ -242,7 +246,27 @@ def test_the_review_flag_adds_a_second_review_by_the_review_model() -> None:
     assert [request.model for request in llm.requests] == ["claude-haiku-5-5", "claude-sonnet-5-5"]
 
 
-def test_there_is_no_review_without_the_flag_or_the_setting() -> None:
+def test_the_review_runs_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEVASSIST_REVIEW")
+    app, llm = fake_app(answer(), Review(missed_issues=[]))
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert result.exit_code == ExitCode.OK
+    assert [request.model for request in llm.requests] == ["claude-haiku-5-5", "claude-sonnet-5-5"]
+
+
+def test_the_no_review_flag_skips_the_default_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DEVASSIST_REVIEW")
+    app, llm = fake_app(answer())
+
+    runner.invoke(app, ["explain", write_snippet(), "--no-review"])
+
+    assert len(llm.requests) == 1
+
+
+def test_the_review_setting_turned_off_skips_the_review() -> None:
+    # The isolated fixture sets DEVASSIST_REVIEW=false.
     app, llm = fake_app(answer())
 
     runner.invoke(app, ["explain", write_snippet()])

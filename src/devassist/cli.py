@@ -389,7 +389,8 @@ def build_app(
             bool | None,
             typer.Option(
                 "--review/--no-review",
-                help="Have a second model check for missed issues. Overrides DEVASSIST_REVIEW.",
+                help="Have a second model check for missed issues (on by default). "
+                "Overrides DEVASSIST_REVIEW.",
             ),
         ] = None,
         language: Annotated[
