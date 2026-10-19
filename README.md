@@ -41,7 +41,7 @@ $ uv run devassist explain examples/find_users.py --trace
 1 round | 1,638 in / 1,600 out tokens | $0.000964 | 8.8 s
 ```
 
-The trace and the summary line go to stderr. The review goes to stdout:
+The trace and the summary line go to stderr. The review goes to stdout. Since Oct 19 it's also saved as `examples/find_users.review.md`, and the run ends with a `Review saved to` line that this earlier run doesn't show:
 
 <details>
 <summary>The review, as printed</summary>
@@ -105,15 +105,15 @@ In one run with `--review`, Sonnet's second review found both, plus a real bug t
 Set up once as in the [Quickstart](#quickstart).
 
 ```
-uv run devassist explain path/to/file.py                 # Markdown review
+uv run devassist explain path/to/file.py                 # Markdown review, also saved as path/to/file.review.md
 uv run devassist explain path/to/file.py --format json   # JSON, for scripts
 cat path/to/file.py | uv run devassist explain           # read the snippet from stdin
 uv run devassist --version
 ```
 
-The review goes to stdout. Errors go to stderr, and so does a one-line run summary after a Markdown review: rounds, escalations, any second review, tokens, cost at list prices and time, such as `3 rounds (1 escalation) | 6,500 in / 3,000 out tokens | $0.0164 | 18.4 s`. JSON output carries the same numbers under `metrics`. A model missing from the price table in `config.py` shows its cost as unknown rather than wrong.
+The review goes to stdout. A Markdown review of a file is also saved next to it in UTF-8, as `NAME.review.md`, ready for an editor's Markdown preview, and the last line on stderr gives its path. Each run replaces the file. Reviews of piped-in code and JSON output aren't saved. Errors go to stderr, and so does a one-line run summary after a Markdown review: rounds, escalations, any second review, tokens, cost at list prices and time, such as `3 rounds (1 escalation) | 6,500 in / 3,000 out tokens | $0.0164 | 18.4 s`. JSON output carries the same numbers under `metrics`. A model missing from the price table in `config.py` shows its cost as unknown rather than wrong.
 
-devassist writes UTF-8, so `> review.md` saves a clean UTF-8 review in most shells. Windows PowerShell 5.1 is the exception: it re-encodes text that passes through it, so `>` saves UTF-16 and can garble non-ASCII characters, and piped input loses them. On PowerShell 5.1, pass a file path rather than piping, and use PowerShell 7 when you need a saved review to be exact.
+devassist writes UTF-8, so `> review.md` also works in most shells. Windows PowerShell 5.1 is the exception: it re-encodes text that passes through it, so `>` saves UTF-16 and can garble non-ASCII characters, and piped input loses them. On PowerShell 5.1, pass a file path rather than piping, and use the saved `.review.md` file rather than `>`.
 
 | Option | What it does |
 |---|---|
@@ -148,7 +148,7 @@ docker run --rm -e ANTHROPIC_API_KEY -v "${PWD}:/work:ro" devassist explain /wor
 ```
 
 - `-e ANTHROPIC_API_KEY` passes the key from your shell into the container. The key is never built into the image. Set it in your shell first, or keep it in a `.env` file in the shared folder.
-- `-v "${PWD}:/work:ro"` shares the current folder with the container as `/work`, read-only, so devassist can read your code but not change it. Paths you pass start with `/work/`.
+- `-v "${PWD}:/work:ro"` shares the current folder with the container as `/work`, read-only, so devassist can read your code but not change it. Paths you pass start with `/work/`. Saving the `.review.md` file fails on a read-only folder, so devassist warns and the review is only printed.
 - The command is the same in PowerShell and bash. Sharing a folder works better than piping code in, because Windows PowerShell 5.1 pipes text as ASCII.
 - The container runs as a non-root user. LangSmith tracing stays off unless you pass its variables with `-e` as well.
 

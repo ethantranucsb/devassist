@@ -23,7 +23,13 @@ from pydantic import ValidationError
 
 from devassist.agent import build_graph, run_graph
 from devassist.analyzers import Analyzer, default_analyzers
-from devassist.config import SUPPORTED_LANGUAGE, LangSmithStatus, Settings, langsmith_status
+from devassist.config import (
+    SAVED_REVIEW_SUFFIX,
+    SUPPORTED_LANGUAGE,
+    LangSmithStatus,
+    Settings,
+    langsmith_status,
+)
 from devassist.exceptions import (
     AnalyzerError,
     ConfigError,
@@ -103,6 +109,20 @@ def _read_input(path: Path | None) -> str:
             "Pass a Python file or pipe code in, for example: devassist explain path/to/file.py"
         )
     return _read_stdin()
+
+
+def _save_review(markdown: str, snippet_path: Path) -> None:
+    """Save a Markdown review next to its snippet, as find_users.review.md, and say where.
+
+    The review has already been printed, so a failed save is a warning, not an error.
+    """
+    saved = snippet_path.with_suffix(SAVED_REVIEW_SUFFIX)
+    try:
+        saved.write_text(f"{markdown}\n", encoding="utf-8")
+    except OSError as error:
+        typer.echo(f"Warning: Couldn't save the review to {saved}: {error.strerror}.", err=True)
+        return
+    typer.echo(f"Review saved to {saved}", err=True)
 
 
 def _load_settings(model: str | None, max_rounds: int | None, review: bool | None) -> Settings:
@@ -348,7 +368,10 @@ def build_app(
         path: Annotated[
             Path | None,
             typer.Argument(
-                exists=True, dir_okay=False, help="The Python file to review. Omit to read stdin."
+                exists=True,
+                dir_okay=False,
+                help="The Python file to review. A Markdown review is also saved next to it, "
+                "as NAME.review.md. Omit to read stdin.",
             ),
         ] = None,
         output_format: Annotated[
@@ -400,8 +423,11 @@ def build_app(
         if output_format is OutputFormat.JSON:
             typer.echo(render_json(state.result, state.warnings, state.metrics))
         else:
-            typer.echo(render_markdown(state.result, state.warnings))
+            markdown = render_markdown(state.result, state.warnings)
+            typer.echo(markdown)
             typer.echo(metrics_line(state.metrics), err=True)
+            if path is not None:
+                _save_review(markdown, path)
 
     return app
 
