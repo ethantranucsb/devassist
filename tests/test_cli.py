@@ -203,7 +203,7 @@ def test_markdown_mode_prints_a_metrics_line_on_stderr() -> None:
     result = runner.invoke(app, ["explain", write_snippet()])
 
     assert result.stderr.startswith("1 round | 100 in / 50 out tokens | $0.000035 | ")
-    assert result.stderr.rstrip().endswith(" s")
+    assert result.stderr.splitlines()[0].endswith(" s")
     assert "tokens" not in result.stdout
 
 
@@ -427,6 +427,85 @@ def test_version_prints_the_installed_version() -> None:
 
     assert result.exit_code == ExitCode.OK
     assert result.stdout.strip() == f"devassist {version('devassist')}"
+
+
+# Saving the review
+
+
+def test_a_markdown_review_of_a_file_is_also_saved_next_to_it() -> None:
+    app, _ = fake_app(answer(issues=[ISSUE]))
+
+    result = runner.invoke(app, ["explain", write_snippet()])
+
+    assert result.exit_code == ExitCode.OK
+    assert Path("snippet.review.md").read_text(encoding="utf-8") == result.stdout
+    assert result.stderr.splitlines()[-1] == "Review saved to snippet.review.md"
+
+
+def test_the_saved_review_keeps_non_ascii_text() -> None:
+    # The minus sign isn't in Windows' default code page, so only a UTF-8 write keeps it.
+    app, _ = fake_app(answer(summary="Adds two numbers − café — done."))
+
+    runner.invoke(app, ["explain", write_snippet()])
+
+    saved = Path("snippet.review.md").read_text(encoding="utf-8")
+    assert "Adds two numbers − café — done." in saved
+
+
+def test_saving_replaces_an_earlier_review() -> None:
+    Path("snippet.review.md").write_text("An old review.", encoding="utf-8")
+    app, _ = fake_app(answer())
+
+    runner.invoke(app, ["explain", write_snippet()])
+
+    assert "An old review." not in Path("snippet.review.md").read_text(encoding="utf-8")
+
+
+def test_a_review_of_stdin_is_printed_but_not_saved() -> None:
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain"], input=SNIPPET)
+
+    assert result.exit_code == ExitCode.OK
+    assert list(Path().iterdir()) == []
+    assert "Review saved" not in result.stderr
+
+
+def test_a_json_review_is_printed_but_not_saved() -> None:
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", write_snippet(), "--format", "json"])
+
+    assert result.exit_code == ExitCode.OK
+    assert not Path("snippet.review.md").exists()
+
+
+def test_a_failed_run_saves_nothing() -> None:
+    app, _ = fake_app()
+
+    runner.invoke(app, ["explain", write_snippet("")])
+
+    assert not Path("snippet.review.md").exists()
+
+
+def test_a_review_that_cant_be_saved_is_still_printed_with_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = write_snippet()
+
+    def refuse(self: Path, data: str, encoding: str | None = None) -> int:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "write_text", refuse)
+    app, _ = fake_app(answer())
+
+    result = runner.invoke(app, ["explain", path])
+
+    assert result.exit_code == ExitCode.OK
+    assert "# Summary" in result.stdout
+    expected = "Warning: Couldn't save the review to snippet.review.md: Permission denied."
+    assert expected in result.stderr
+    assert "Review saved" not in result.stderr
 
 
 # Exit code 2: usage and input problems

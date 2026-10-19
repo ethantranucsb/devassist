@@ -37,6 +37,7 @@ ESCALATION_ROUND = 3  # the first round that uses the fallback model
 MAX_SNIPPET_CHARS = 20_000  # about 500 lines of code
 SUPPORTED_LANGUAGE = "python"
 REVIEW_ENABLED = False  # off until the eval shows it meets D8's bar (docs/decisions.md D18)
+SAVED_REVIEW_SUFFIX = ".review.md"  # find_users.py's review is saved as find_users.review.md
 
 # Anthropic API
 LLM_TIMEOUT_SECONDS = 120.0  # per request; the SDK's default is 10 minutes
