@@ -203,7 +203,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D18. A second review by a different model, on by default only if it meets D8's bar
 
-*Decided Oct 18, 2026, before any eval run with the review.*
+*Decided Oct 18, 2026, before any eval run with the review. D19 overrode its result on Oct 19, and D20 restored it the same day.*
 
 - **Context:** `verify` checks the rewrite, not the review. Nothing at run time checks whether the review missed an issue. On the full eval (D8's result), the design's misses came from two planted issues that no static tool flags: a database query inside a loop (`performance-query-per-item`) and a missing docstring (`documentation-missing-docstring`). On the README's demo file, one review reported 2 of 4 planted problems, missing the same two kinds.
 - **Options:** no run-time check, with misses measured offline only (as built until now); a second pass by the same model; a second review by a different Anthropic model; a second review by another company's model, such as GPT-6 Luna; a second reviewer that rewrites the whole answer rather than listing what's missing.
@@ -226,3 +226,34 @@ One entry per real decision: the context, the options, the choice, why, and what
   5. Mean cost per snippet 63.4% of Sonnet alone's ($0.00738 against $0.01164; 95% CI 48.9% to 86.5%). The point estimate fails; inconclusive.
   6. Every adversarial case passed in every run. Pass.
 - **What the result shows:** the review did its job and cost too much doing it. It found the N+1 query in 3 of 3 runs, where Haiku alone and Sonnet alone found it in none, and the missing docstring in 3 of 3, against Haiku alone's 0 of 3. It flagged missed issues in 19 of 54 planted runs and none of the 24 clean runs, so the design's false alarms all came from Haiku's drafts (D8's replication), not the review. Its cost and latency come from the runs where it found something: those 19 averaged $0.0162 and 27.5 s, against $0.0048 and 8.6 s for the 65 where it found nothing. In 4 of them the rewrite that added the missed issues failed verification and Sonnet answered round 3, the fallback's first use; they cost about $0.04 each. A cheaper reviewer, or a review that runs only when it's likely to find something, is the change to try first.
+
+## D19. Haiku loops until it passes, Sonnet reviews and fixes, on by default
+
+*Decided Oct 19, 2026, by the developer, after D18's eval. Overrode D18's result on the default. Reverted by D20 the same day, after its own eval.*
+
+- **Context:** D18's eval found the review did its job, with 100% recall, both blind spots found and no false alarms of its own, but it missed D8's bar on cost, p95 latency and false alarms, so it shipped off by default.
+- **Options:** keep D18's result; turn the review on in D18's flow; restructure the workflow around the review.
+- **Choice:** restructure, with the review on by default. Haiku drafts and refines until `verify` passes, with at most 2 tries. Haiku's passing answer goes to Sonnet's review. Missed issues go to Sonnet, which adds and fixes them and refines until `verify` passes, with at most 2 tries; with none, Haiku's answer is final. A Haiku that runs out of tries hands over to Sonnet without a review. Turning the review on overrode D18's rule, set before its eval, as a deliberate choice to pay for recall with cost and latency.
+- **Why:** quality first, as D8 sets out. The review was the only change that found the issues both models missed alone. Sonnet was to make the fix because it had reported the issues, and because 4 of the 19 Haiku fixes in D18's eval failed verification and needed Sonnet anyway.
+- **Result (Oct 19, 2026): reverted.** On the eval (270 runs, $2.14, `evals/results/workflow-d19-summary.json`), against Sonnet alone:
+  1. Recall 96.3% against 98.1%: −1.9 points (95% CI −5.6 to 0). Pass.
+  2. False alarms 12.5% against 4.2%: +8.3 points (95% CI 0 to +20.8). The point estimate passes; inconclusive.
+  3. 100% of answers valid on the first try. Pass.
+  4. p95 latency 44.9 s (95% CI 21.7 to 53.9). The point estimate fails; inconclusive.
+  5. Mean cost per snippet 96.2% of Sonnet alone's ($0.01204 against $0.01252; 95% CI 69.6% to 119.8%). Fail.
+  6. Every adversarial case passed in every run. Pass.
+- **What the result shows:** the workflow cost what Sonnet alone does and took twice as long at p95, with no better recall or false alarms, so Sonnet alone dominated it. The 22 runs whose review flagged something (26%) averaged $0.033 and 30 s, because a Sonnet review was followed by a full Sonnet rewrite. Sonnet's fix also dropped some of the review's findings: in the N+1 case, the review found the planted query in all 3 runs, and the final answer kept it in 1. The review raised its first false alarm, in 1 of 24 clean runs.
+
+## D20. Back to D18: Haiku by default, the review opt-in
+
+*Decided Oct 19, 2026.*
+
+- **Context:** D19's eval found its workflow dominated by Sonnet alone.
+- **Options:** go back to D18's workflow, with the review off by default; make Sonnet alone the default; keep D19 and merge the review's findings into the final answer in code.
+- **Choice:** go back to D18. The pull request that made D19 is reverted: Haiku answers rounds 1 and 2 and Sonnet round 3 by default, and `--review` works as D18 describes, with Haiku adding and fixing what Sonnet's review finds. The analyzers still ignore `# noqa` and `# nosec` (D5), a fix found while testing D19.
+- **Why:**
+  - **Every configuration devassist ships has been measured:** the default by the first eval and its replication (D8), and `--review` by D18's eval.
+  - **The default stays the cheap option,** about $0.0009 per snippet.
+  - **Users who want more have measured choices.** `--review` found the most planted issues (100% in D18's eval) at about 63% of Sonnet alone's cost, with more false alarms and a p95 of 39.5 s. `--model claude-sonnet-5-5` is quieter and simpler, with one false alarm in three evals, at about 13 times Haiku's cost.
+  - **Making Sonnet the default** would rewrite D8's cost case on the deadline day, for a gap made of low-severity false alarms and a few points of recall.
+- **Would change if:** the review's findings were merged into the final answer in code and a cheaper fix path measured well; or devassist were used where any finding blocks a build, where D8 already calls for Sonnet.

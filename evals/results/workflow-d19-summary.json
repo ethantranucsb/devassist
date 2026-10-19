@@ -1,0 +1,177 @@
+{
+  "label": "workflow-d19",
+  "created_at": "2026-10-19T08:13:19+00:00",
+  "cases": 30,
+  "runs_per_case": 3,
+  "bootstrap_resamples": 10000,
+  "bootstrap_seed": 20261017,
+  "configs": {
+    "design": {
+      "name": "design",
+      "model": "claude-haiku-5-5",
+      "fallback_model": "claude-sonnet-5-5",
+      "review_model": "claude-sonnet-5-5",
+      "runs": 90,
+      "failed_runs": 0,
+      "recall": 0.9629629629629629,
+      "recall_by_difficulty": {
+        "easy": 1.0,
+        "medium": 0.8888888888888888,
+        "hard": 1.0
+      },
+      "near_misses": 0,
+      "false_alarm_rate": 0.125,
+      "first_try_valid": 1.0,
+      "verified_rate": 1.0,
+      "adversarial_pass_rate": 1.0,
+      "adversarial_failures": {},
+      "mean_rounds": 1.3214285714285714,
+      "escalation_rate": 0.2619047619047619,
+      "reviewed_runs": 84,
+      "review_flag_rate": 0.2619047619047619,
+      "mean_cost_usd": 0.012040064285714285,
+      "total_cost_usd": 1.0113654,
+      "latency_p50_seconds": 10.084365799979423,
+      "latency_p95_seconds": 44.94596029500243
+    },
+    "haiku": {
+      "name": "haiku",
+      "model": "claude-haiku-5-5",
+      "fallback_model": "claude-haiku-5-5",
+      "review_model": null,
+      "runs": 90,
+      "failed_runs": 0,
+      "recall": 0.8888888888888888,
+      "recall_by_difficulty": {
+        "easy": 0.8571428571428571,
+        "medium": 0.8333333333333334,
+        "hard": 1.0
+      },
+      "near_misses": 3,
+      "false_alarm_rate": 0.041666666666666664,
+      "first_try_valid": 1.0,
+      "verified_rate": 1.0,
+      "adversarial_pass_rate": 1.0,
+      "adversarial_failures": {},
+      "mean_rounds": 1.0357142857142858,
+      "escalation_rate": 0.0,
+      "reviewed_runs": 0,
+      "review_flag_rate": null,
+      "mean_cost_usd": 0.0008666,
+      "total_cost_usd": 0.0727944,
+      "latency_p50_seconds": 7.920443499999237,
+      "latency_p95_seconds": 14.801022354999434
+    },
+    "sonnet": {
+      "name": "sonnet",
+      "model": "claude-sonnet-5-5",
+      "fallback_model": "claude-sonnet-5-5",
+      "review_model": null,
+      "runs": 90,
+      "failed_runs": 0,
+      "recall": 0.9814814814814815,
+      "recall_by_difficulty": {
+        "easy": 1.0,
+        "medium": 0.9444444444444445,
+        "hard": 1.0
+      },
+      "near_misses": 0,
+      "false_alarm_rate": 0.041666666666666664,
+      "first_try_valid": 1.0,
+      "verified_rate": 1.0,
+      "adversarial_pass_rate": 1.0,
+      "adversarial_failures": {},
+      "mean_rounds": 1.0357142857142858,
+      "escalation_rate": 0.0,
+      "reviewed_runs": 0,
+      "review_flag_rate": null,
+      "mean_cost_usd": 0.01251954761904762,
+      "total_cost_usd": 1.051642,
+      "latency_p50_seconds": 7.551510499994038,
+      "latency_p95_seconds": 20.142315895020133
+    }
+  },
+  "criteria": [
+    {
+      "number": 1,
+      "name": "Issue recall",
+      "rule": "no more than 10 points below Sonnet alone",
+      "unit": "points",
+      "value": -0.018518518518518517,
+      "threshold": -0.1,
+      "interval": [
+        -0.05555555555555555,
+        0.0
+      ],
+      "point_estimate_passes": true,
+      "verdict": "pass"
+    },
+    {
+      "number": 2,
+      "name": "False alarms",
+      "rule": "no more than 10 points above Sonnet alone",
+      "unit": "points",
+      "value": 0.08333333333333333,
+      "threshold": 0.1,
+      "interval": [
+        0.0,
+        0.20833333333333331
+      ],
+      "point_estimate_passes": true,
+      "verdict": "inconclusive"
+    },
+    {
+      "number": 3,
+      "name": "Valid on first try",
+      "rule": "at least 95% of model answers",
+      "unit": "percent",
+      "value": 1.0,
+      "threshold": 0.95,
+      "interval": [
+        1.0,
+        1.0
+      ],
+      "point_estimate_passes": true,
+      "verdict": "pass"
+    },
+    {
+      "number": 4,
+      "name": "Latency",
+      "rule": "p95 under 30 s",
+      "unit": "seconds",
+      "value": 44.94596029500243,
+      "threshold": 30.0,
+      "interval": [
+        21.67151786998874,
+        53.92214249999961
+      ],
+      "point_estimate_passes": false,
+      "verdict": "inconclusive"
+    },
+    {
+      "number": 5,
+      "name": "Cost",
+      "rule": "mean cost per snippet at most 50% of Sonnet alone's",
+      "unit": "percent",
+      "value": 0.9617012253219251,
+      "threshold": 0.5,
+      "interval": [
+        0.6963270835052126,
+        1.197600304569702
+      ],
+      "point_estimate_passes": false,
+      "verdict": "fail"
+    },
+    {
+      "number": 6,
+      "name": "Adversarial cases",
+      "rule": "every one passes in every run",
+      "unit": "percent",
+      "value": 1.0,
+      "threshold": 1.0,
+      "interval": null,
+      "point_estimate_passes": true,
+      "verdict": "pass"
+    }
+  ]
+}
