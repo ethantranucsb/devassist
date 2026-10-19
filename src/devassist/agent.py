@@ -21,7 +21,7 @@ from devassist.analyzers import Analyzer
 from devassist.config import SUPPORTED_LANGUAGE, Settings
 from devassist.llm import LLMClient, LLMRequest
 from devassist.metrics import summarize
-from devassist.models import Attempt, Finding, GraphState
+from devassist.models import Analysis, Attempt, Finding, GraphState
 from devassist.prompts import draft_prompt, refine_prompt, system_prompt
 from devassist.verify import verification_problems
 
@@ -59,11 +59,12 @@ def _ask_model(round_number: int, prompt: str, llm: LLMClient, settings: Setting
     escalated = model != settings.model
     if escalated:
         logger.info("Round %d: escalating from %s to %s", round_number, settings.model, model)
-    result = llm.generate(LLMRequest(model=model, system=system_prompt(), prompt=prompt))
+    request = LLMRequest(model=model, system=system_prompt(), prompt=prompt, output_type=Analysis)
+    result = llm.generate(request)
     return Attempt(
         round=round_number,
         model=result.model,
-        analysis=result.analysis,
+        analysis=result.output,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
         escalated=escalated,

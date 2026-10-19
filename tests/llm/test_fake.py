@@ -1,8 +1,17 @@
+from typing import Any
+
 import pytest
+from pydantic import BaseModel
 
 from devassist.exceptions import DevassistError, LLMError, SchemaValidationError
 from devassist.llm import FakeLLMClient, LLMRequest, LLMResult
 from devassist.models import Analysis
+
+
+class Verdict(BaseModel):
+    """A second output schema, to show the fake isn't tied to Analysis."""
+
+    approved: bool
 
 
 def make_analysis(summary: str = "Adds two numbers.") -> Analysis:
@@ -15,10 +24,15 @@ def make_analysis(summary: str = "Adds two numbers.") -> Analysis:
     )
 
 
-def make_request(model: str = "claude-test-model") -> LLMRequest:
-    """Return a request for the given model."""
+def make_request(
+    model: str = "claude-test-model", output_type: type[BaseModel] = Analysis
+) -> LLMRequest[Any]:
+    """Return a request for the given model and output schema."""
     return LLMRequest(
-        model=model, system="You review Python code.", prompt="<snippet>...</snippet>"
+        model=model,
+        system="You review Python code.",
+        prompt="<snippet>...</snippet>",
+        output_type=output_type,
     )
 
 
@@ -26,8 +40,31 @@ def test_returns_scripted_analyses_in_order() -> None:
     first, second = make_analysis("First."), make_analysis("Second.")
     fake = FakeLLMClient([first, second])
 
-    assert fake.generate(make_request()).analysis == first
-    assert fake.generate(make_request()).analysis == second
+    assert fake.generate(make_request()).output == first
+    assert fake.generate(make_request()).output == second
+
+
+def test_returns_a_scripted_answer_of_the_requested_schema() -> None:
+    fake = FakeLLMClient([Verdict(approved=True)])
+
+    result = fake.generate(make_request(output_type=Verdict))
+
+    assert result.output == Verdict(approved=True)
+
+
+def test_fails_loudly_when_a_scripted_answer_has_another_schema() -> None:
+    fake = FakeLLMClient([make_analysis()])
+
+    with pytest.raises(AssertionError, match="Verdict"):
+        fake.generate(make_request(output_type=Verdict))
+
+
+def test_fails_loudly_when_a_scripted_result_has_another_schema() -> None:
+    scripted = LLMResult(output=make_analysis(), model="m", input_tokens=1, output_tokens=1)
+    fake = FakeLLMClient([scripted])
+
+    with pytest.raises(AssertionError, match="Verdict"):
+        fake.generate(make_request(output_type=Verdict))
 
 
 def test_reports_the_requested_model_and_token_counts() -> None:
@@ -42,7 +79,7 @@ def test_reports_the_requested_model_and_token_counts() -> None:
 
 def test_returns_a_scripted_result_unchanged() -> None:
     scripted = LLMResult(
-        analysis=make_analysis(), model="claude-other", input_tokens=1234, output_tokens=567
+        output=make_analysis(), model="claude-other", input_tokens=1234, output_tokens=567
     )
     fake = FakeLLMClient([scripted])
 

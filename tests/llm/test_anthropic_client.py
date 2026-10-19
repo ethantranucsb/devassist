@@ -3,6 +3,7 @@ from typing import Any
 
 import httpx2
 import pytest
+from pydantic import BaseModel
 
 from devassist.config import LLM_MAX_RETRIES, LLM_TIMEOUT_SECONDS, MAX_OUTPUT_TOKENS
 from devassist.exceptions import LLMError, SchemaValidationError
@@ -10,8 +11,26 @@ from devassist.llm import LLMRequest
 from devassist.llm.anthropic_client import AnthropicClient
 from devassist.models import Analysis
 
+
+class Verdict(BaseModel):
+    """A second output schema, to show the client isn't tied to Analysis."""
+
+    approved: bool
+
+
 FAKE_KEY = "sk-ant-test-not-real"
-REQUEST = LLMRequest(model="claude-haiku-5-5", system="You review code.", prompt="Review this.")
+REQUEST = LLMRequest(
+    model="claude-haiku-5-5",
+    system="You review code.",
+    prompt="Review this.",
+    output_type=Analysis,
+)
+VERDICT_REQUEST = LLMRequest(
+    model="claude-haiku-5-5",
+    system="You review code.",
+    prompt="Review this.",
+    output_type=Verdict,
+)
 VALID = {
     "summary": "Adds two numbers.",
     "documentation": "`add(a, b)` returns a + b.",
@@ -89,12 +108,33 @@ def test_the_request_carries_the_model_prompts_limit_and_schema() -> None:
     assert set(output_format["schema"]["properties"]) == set(Analysis.model_fields)
 
 
+def test_another_output_type_sends_its_own_schema_and_is_validated_against_it() -> None:
+    api = FakeAPI(ok(json.dumps({"approved": True})))
+
+    result = make_client(api).generate(VERDICT_REQUEST)
+
+    schema = api.bodies[0]["output_config"]["format"]["schema"]
+    assert set(schema["properties"]) == {"approved"}
+    assert result.output == Verdict(approved=True)
+
+
+def test_an_answer_that_fits_another_schema_is_retried() -> None:
+    # A valid Analysis isn't a valid Verdict, so the requested type is what validates.
+    api = FakeAPI(ok(json.dumps(VALID)), ok(json.dumps({"approved": False})))
+
+    result = make_client(api).generate(VERDICT_REQUEST)
+
+    assert result.output == Verdict(approved=False)
+    assert result.retried is True
+    assert "- approved: Field required" in api.bodies[1]["messages"][2]["content"]
+
+
 def test_the_result_has_the_analysis_the_answering_model_and_the_usage() -> None:
     api = FakeAPI(ok(json.dumps(VALID), model="claude-haiku-5-5-20261001", input_tokens=11))
 
     result = make_client(api).generate(REQUEST)
 
-    assert result.analysis == Analysis.model_validate(VALID)
+    assert result.output == Analysis.model_validate(VALID)
     assert result.model == "claude-haiku-5-5-20261001"
     assert result.input_tokens == 11
     assert result.output_tokens == 20
@@ -129,7 +169,7 @@ def test_an_invalid_answer_is_retried_once_with_the_errors_fed_back() -> None:
 
     result = make_client(api).generate(REQUEST)
 
-    assert result.analysis == Analysis.model_validate(VALID)
+    assert result.output == Analysis.model_validate(VALID)
     assert result.retried is True
     retry = api.bodies[1]["messages"]
     assert retry[0] == {"role": "user", "content": "Review this."}

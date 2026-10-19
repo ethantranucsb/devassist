@@ -31,8 +31,9 @@ from devassist.analyzers import Analyzer, default_analyzers
 from devassist.config import LangSmithStatus, Settings, langsmith_status
 from devassist.exceptions import DevassistError
 from devassist.llm import LLMClient
-from devassist.llm.anthropic_client import OUTPUT_SCHEMA, AnthropicClient
+from devassist.llm.anthropic_client import AnthropicClient, output_schema
 from devassist.metrics import TOKENS_PER_MILLION, price_for
+from devassist.models import Analysis
 from devassist.prompts import draft_prompt, system_prompt
 from evals.cases import EvalCase, load_cases
 from evals.configurations import CONFIGURATIONS, Configuration, settings_for
@@ -224,7 +225,7 @@ def estimate_cost(
         The typical and worst-case cost. Inputs devassist rejects cost nothing.
     """
     settings = settings_for(configuration, base_settings)
-    fixed_input = _tokens(system_prompt()) + _tokens(json.dumps(OUTPUT_SCHEMA))
+    fixed_input = _tokens(system_prompt()) + _tokens(json.dumps(output_schema(Analysis)))
     typical = worst = 0.0
     for case in cases:
         if not reaches_model(case):
