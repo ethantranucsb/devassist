@@ -12,6 +12,7 @@ The first release.
 - A LangGraph workflow checks every rewrite with `ast`, ruff and bandit and sends the problems back to the model, with at most 2 tries per model. Claude Haiku 5.5 drafts and refines until its rewrite passes.
 - A second review, on by default (`--no-review` skips it), asks Claude Sonnet 5.5 for issues Haiku's passing answer missed. Sonnet adds and fixes any it finds, in rounds that are verified like the rest, and takes over when Haiku runs out of tries.
 - The model's answer is structured output validated with Pydantic, retried once with the errors fed back.
+- The analyzers ignore `# noqa` and `# nosec` comments, so a rewrite can't silence the checks that verify it.
 - Input checks reject empty, oversized, non-Python and too deeply nested snippets. Each kind of failure has its own exit code.
 - Every run reports its rounds, escalations, retries, tokens, cost at list prices and latency.
 - `--trace` streams each graph step. Opt-in LangSmith tracing prints a notice whenever snippets leave the machine.

@@ -205,7 +205,7 @@ graph TD;
 
 In short: Haiku loops until its rewrite passes, Sonnet reviews it, Sonnet fixes whatever the review found and loops until that passes, then the run finishes (`docs/decisions.md` D19).
 
-The analyzers run as subprocesses on a temporary copy of the snippet, with timeouts and no shell. The code is read, never executed (`docs/decisions.md` D5).
+The analyzers run as subprocesses on a temporary copy of the snippet, with timeouts and no shell. The code is read, never executed (`docs/decisions.md` D5). They ignore `# noqa` and `# nosec` comments, so a rewrite can't switch off the checks that verify it.
 
 ## Tracing
 

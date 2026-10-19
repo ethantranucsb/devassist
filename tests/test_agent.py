@@ -739,6 +739,15 @@ def test_the_graph_has_exactly_the_eight_nodes() -> None:
     assert set(graph.get_graph().nodes) - {START, END} == NODES
 
 
+def test_a_rewrite_cannot_pass_verify_by_suppressing_a_new_finding() -> None:
+    sneaky = "def add(a, b):\n    return eval(f'{a} + {b}')  # nosec\n"
+    state = GraphState(snippet=SNIPPET, attempts=[attempt(sneaky)])
+
+    update = verify(state, analyzers=default_analyzers())
+
+    assert "new bandit finding B307" in str(update["problems"])
+
+
 def test_real_analyzers_catch_a_syntax_error_and_refine_fixes_it() -> None:
     broken = "def add(a, b)\n    return a + b\n"
 
