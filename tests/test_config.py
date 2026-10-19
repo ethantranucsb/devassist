@@ -64,6 +64,17 @@ def test_the_review_defaults_to_the_config_constants() -> None:
     assert settings.review_model == DEFAULT_REVIEW_MODEL
 
 
+def test_the_review_is_on_by_default() -> None:
+    # D21: every run gets the second review unless DEVASSIST_REVIEW or --no-review turns it off.
+    assert load().review is True
+
+
+def test_the_environment_turns_off_the_review(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEVASSIST_REVIEW", "false")
+
+    assert load().review is False
+
+
 def test_a_different_model_reviews_the_drafting_models_work() -> None:
     assert DEFAULT_REVIEW_MODEL != DEFAULT_MODEL
 

@@ -203,7 +203,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D18. A second review by a different model, on by default only if it meets D8's bar
 
-*Decided Oct 18, 2026, before any eval run with the review. D19 overrode its result on Oct 19, and D20 restored it the same day.*
+*Decided Oct 18, 2026, before any eval run with the review. D19 overrode its result on Oct 19, D20 restored it the same day, and D21 then turned the review on by default.*
 
 - **Context:** `verify` checks the rewrite, not the review. Nothing at run time checks whether the review missed an issue. On the full eval (D8's result), the design's misses came from two planted issues that no static tool flags: a database query inside a loop (`performance-query-per-item`) and a missing docstring (`documentation-missing-docstring`). On the README's demo file, one review reported 2 of 4 planted problems, missing the same two kinds.
 - **Options:** no run-time check, with misses measured offline only (as built until now); a second pass by the same model; a second review by a different Anthropic model; a second review by another company's model, such as GPT-6 Luna; a second reviewer that rewrites the whole answer rather than listing what's missing.
@@ -246,7 +246,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D20. Back to D18: Haiku by default, the review opt-in
 
-*Decided Oct 19, 2026.*
+*Decided Oct 19, 2026. D21 turned the review on by default the same day.*
 
 - **Context:** D19's eval found its workflow dominated by Sonnet alone.
 - **Options:** go back to D18's workflow, with the review off by default; make Sonnet alone the default; keep D19 and merge the review's findings into the final answer in code.
@@ -257,3 +257,17 @@ One entry per real decision: the context, the options, the choice, why, and what
   - **Users who want more have measured choices.** `--review` found the most planted issues (100% in D18's eval) at about 63% of Sonnet alone's cost, with more false alarms and a p95 of 39.5 s. `--model claude-sonnet-5-5` is quieter and simpler, with one false alarm in three evals, at about 13 times Haiku's cost.
   - **Making Sonnet the default** would rewrite D8's cost case on the deadline day, for a gap made of low-severity false alarms and a few points of recall.
 - **Would change if:** the review's findings were merged into the final answer in code and a cheaper fix path measured well; or devassist were used where any finding blocks a build, where D8 already calls for Sonnet.
+
+## D21. The review on by default
+
+*Decided Oct 19, 2026, by the developer. Overrides D18's result and D20's default; D18's workflow is unchanged.*
+
+- **Context:** D20 restored D18's workflow with the review off by default, because the design with the review missed D8's bar on cost, p95 latency and false alarms. The default run then reports only what Haiku finds: on the demo file, 2 of its 4 planted problems.
+- **Options:** keep the review opt-in (D20); turn it on by default in D18's workflow; make Sonnet alone the default.
+- **Choice:** turn the review on by default. Nothing else changes: the workflow is D18's, with Haiku adding and fixing what Sonnet's review finds. `DEVASSIST_REVIEW=false` or `--no-review` turns it off.
+- **Why:**
+  - **Finding issues matters most for this tool.** With the review, the design found 100% of planted issues in D18's eval, against the default's 92.6% in D8's eval. The gains were the two kinds of issue no static tool can see.
+  - **It ships a measured configuration.** This is exactly the design D18's eval ran, so nothing unmeasured ships.
+  - **Sonnet alone doesn't dominate it,** as it did D19. In the same eval, Sonnet alone found 94.4% of planted issues and missed the N+1 query in all 3 runs, at a higher cost.
+- **What it costs, as measured in D18's eval:** $0.00738 per snippet, 63% of Sonnet alone's and about 8 times the previous default; a p95 latency of 39.5 s; and false alarms of 20.8%, all low severity and all from Haiku's drafts. Those miss three of D8's criteria on their point estimates. Turning it on overrides a rule set before the eval, as a deliberate choice of recall over cost and speed.
+- **Would change if:** a cheaper reviewer, or a review that runs only when it's likely to find something, measured as well at lower cost; or a use where speed or cost matters most, where `--no-review` gives D8's measured default.
