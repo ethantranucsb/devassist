@@ -9,8 +9,8 @@ The first release.
 ### Added
 
 - `devassist explain` reviews a Python snippet from a file or stdin. It prints a summary, documentation, the issues found and improved code, as Markdown or JSON.
-- A LangGraph workflow checks every rewrite with `ast`, ruff and bandit and sends the problems back to the model, with at most 2 tries per model. Claude Haiku 5.5 drafts and refines until its rewrite passes.
-- A second review, on by default (`--no-review` skips it), asks Claude Sonnet 5.5 for issues Haiku's passing answer missed. Sonnet adds and fixes any it finds, in rounds that are verified like the rest, and takes over when Haiku runs out of tries.
+- A LangGraph workflow checks every rewrite with `ast`, ruff and bandit and sends the problems back to the model, for at most 3 rounds. Claude Haiku 5.5 answers rounds 1 and 2; Claude Sonnet 5.5 answers round 3.
+- An optional second review (`--review`) asks a different model, Claude Sonnet 5.5, for issues the first review missed. Any it finds are added and fixed in a verified round. A second eval found it caught every planted issue but missed the bar on cost, latency and false alarms, so it's off by default. A third eval, with Sonnet making the fix, found that version cost as much as Sonnet alone, so it wasn't kept.
 - The model's answer is structured output validated with Pydantic, retried once with the errors fed back.
 - The analyzers ignore `# noqa` and `# nosec` comments, so a rewrite can't silence the checks that verify it.
 - Input checks reject empty, oversized, non-Python and too deeply nested snippets. Each kind of failure has its own exit code.

@@ -9,8 +9,8 @@ from langgraph.graph import END, START
 from devassist.agent import (
     build_graph,
     draft,
-    escalate,
     finalize,
+    model_for_round,
     refine,
     review,
     route_after_review,
@@ -40,16 +40,7 @@ from devassist.prompts import (
 HAIKU = "haiku-test"
 SONNET = "sonnet-test"
 REVIEWER = "reviewer-test"
-NODES = {
-    "validate_input",
-    "run_static_checks",
-    "draft",
-    "verify",
-    "review",
-    "refine",
-    "escalate",
-    "finalize",
-}
+NODES = {"validate_input", "run_static_checks", "draft", "verify", "review", "refine", "finalize"}
 
 SNIPPET = "def add(a, b):\n    return a+b\n"
 GOOD_CODE = "def add(a: int, b: int) -> int:\n    return a + b\n"
@@ -87,7 +78,8 @@ def make_settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "model": HAIKU,
         "fallback_model": SONNET,
-        "max_rounds": 2,
+        "max_rounds": 3,
+        "escalation_round": 3,
         "max_snippet_chars": 200,
         "review": False,
         "review_model": REVIEWER,
@@ -107,11 +99,7 @@ def answer(code: str) -> Analysis:
 
 
 def attempt(
-    code: str,
-    round_number: int = 1,
-    model: str = HAIKU,
-    escalated: bool = False,
-    fallback: bool = False,
+    code: str, round_number: int = 1, model: str = HAIKU, escalated: bool = False
 ) -> Attempt:
     """Return a recorded round whose answer has the given improved code."""
     return Attempt(
@@ -121,13 +109,7 @@ def attempt(
         input_tokens=FAKE_INPUT_TOKENS,
         output_tokens=FAKE_OUTPUT_TOKENS,
         escalated=escalated,
-        fallback=fallback,
     )
-
-
-def sonnet(code: str, round_number: int) -> Attempt:
-    """Return a recorded round from the fallback model's tries."""
-    return attempt(code, round_number, SONNET, escalated=True, fallback=True)
 
 
 def finding(code: str = "F401", line: int = 1, tool: str = "ruff") -> Finding:
@@ -302,10 +284,10 @@ def test_verify_reports_a_changed_signature() -> None:
     assert verify(state, analyzers=[]) == {"problems": [BAD_CODE_PROBLEM]}
 
 
-# refine
+# refine and model_for_round
 
 
-def test_refine_sends_the_previous_answer_and_its_problems_to_the_default_model() -> None:
+def test_refine_sends_the_previous_answer_and_its_problems() -> None:
     llm = FakeLLMClient([answer(GOOD_CODE)])
     state = GraphState(
         snippet=SNIPPET, findings=[finding()], attempts=[attempt(BAD_CODE)], problems=["a problem"]
@@ -319,58 +301,20 @@ def test_refine_sends_the_previous_answer_and_its_problems_to_the_default_model(
     assert update == {"attempts": [attempt(GOOD_CODE, round_number=2)]}
 
 
-def test_refine_stays_on_the_fallback_model_once_escalated() -> None:
-    llm = FakeLLMClient([answer(GOOD_CODE)])
-    state = GraphState(
-        snippet=SNIPPET,
-        attempts=[attempt(GOOD_CODE), sonnet(BAD_CODE, 2)],
-        review=review_call(MISSED),
-        problems=[BAD_CODE_PROBLEM],
-    )
-
-    update = refine(state, llm=llm, settings=make_settings(review=True))
-
-    expected_prompt = refine_prompt(SNIPPET, [], answer(BAD_CODE), [BAD_CODE_PROBLEM])
-    assert llm.requests[0].prompt == expected_prompt
-    assert llm.requests[0].model == SONNET
-    assert update == {"attempts": [sonnet(GOOD_CODE, 3)]}
-
-
-# escalate
-
-
-def test_escalate_after_a_review_has_the_fallback_model_add_and_fix_the_missed_issues(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    llm = FakeLLMClient([answer(GOOD_CODE)])
-    state = GraphState(
-        snippet=SNIPPET,
-        findings=[finding()],
-        attempts=[attempt(GOOD_CODE)],
-        review=review_call(MISSED),
-    )
-
-    with caplog.at_level(logging.INFO, logger="devassist.agent"):
-        update = escalate(state, llm=llm, settings=make_settings(review=True))
-
-    expected_prompt = revise_prompt(SNIPPET, [finding()], answer(GOOD_CODE), [MISSED])
-    assert llm.requests[0].prompt == expected_prompt
-    assert llm.requests[0].model == SONNET
-    assert update == {"attempts": [sonnet(GOOD_CODE, 2)]}
-    assert "escalating" in caplog.text
-    assert SONNET in caplog.text
-
-
-def test_escalate_after_the_default_model_runs_out_sends_verifys_problems() -> None:
+def test_refine_escalates_in_round_three_and_logs_it(caplog: pytest.LogCaptureFixture) -> None:
     llm = FakeLLMClient([answer(GOOD_CODE)])
     state = GraphState(
         snippet=SNIPPET, attempts=[attempt(BAD_CODE), attempt(BAD_CODE, 2)], problems=["p"]
     )
 
-    update = escalate(state, llm=llm, settings=make_settings())
+    with caplog.at_level(logging.INFO, logger="devassist.agent"):
+        update = refine(state, llm=llm, settings=make_settings())
 
-    assert llm.requests[0].prompt == refine_prompt(SNIPPET, [], answer(BAD_CODE), ["p"])
-    assert update == {"attempts": [sonnet(GOOD_CODE, 3)]}
+    assert llm.requests[0].model == SONNET
+    expected = attempt(GOOD_CODE, round_number=3, model=SONNET, escalated=True)
+    assert update == {"attempts": [expected]}
+    assert "escalating" in caplog.text
+    assert SONNET in caplog.text
 
 
 def test_no_escalation_is_logged_when_both_models_are_the_same(
@@ -382,10 +326,20 @@ def test_no_escalation_is_logged_when_both_models_are_the_same(
     )
 
     with caplog.at_level(logging.INFO, logger="devassist.agent"):
-        update = escalate(state, llm=llm, settings=make_settings(fallback_model=HAIKU))
+        refine(state, llm=llm, settings=make_settings(fallback_model=HAIKU))
 
     assert "escalating" not in caplog.text
-    assert update == {"attempts": [attempt(GOOD_CODE, 3, fallback=True)]}
+
+
+@pytest.mark.parametrize(
+    ("round_number", "expected"), [(1, HAIKU), (2, HAIKU), (3, SONNET), (4, SONNET)]
+)
+def test_model_for_round_switches_at_the_escalation_round(round_number: int, expected: str) -> None:
+    assert model_for_round(round_number, make_settings()) == expected
+
+
+def test_the_escalation_round_is_a_setting() -> None:
+    assert model_for_round(2, make_settings(escalation_round=2)) == SONNET
 
 
 # review
@@ -410,6 +364,37 @@ def test_review_sends_the_snippet_and_the_latest_issues_to_the_review_model(
     assert request.output_type is Review
     assert update == {"review": review_call(MISSED)}
     assert REVIEWER in caplog.text
+
+
+def test_refine_after_a_review_asks_for_the_missed_issues_to_be_added_and_fixed() -> None:
+    llm = FakeLLMClient([answer(GOOD_CODE)])
+    state = GraphState(
+        snippet=SNIPPET,
+        findings=[finding()],
+        attempts=[attempt(GOOD_CODE)],
+        review=review_call(MISSED),
+    )
+
+    update = refine(state, llm=llm, settings=make_settings(review=True))
+
+    expected_prompt = revise_prompt(SNIPPET, [finding()], answer(GOOD_CODE), [MISSED])
+    assert llm.requests[0].prompt == expected_prompt
+    assert update == {"attempts": [attempt(GOOD_CODE, round_number=2)]}
+
+
+def test_refine_fixes_verify_problems_even_after_a_review() -> None:
+    llm = FakeLLMClient([answer(GOOD_CODE)])
+    state = GraphState(
+        snippet=SNIPPET,
+        attempts=[attempt(GOOD_CODE), attempt(BAD_CODE, 2)],
+        review=review_call(MISSED),
+        problems=[BAD_CODE_PROBLEM],
+    )
+
+    refine(state, llm=llm, settings=make_settings(review=True))
+
+    expected_prompt = refine_prompt(SNIPPET, [], answer(BAD_CODE), [BAD_CODE_PROBLEM])
+    assert llm.requests[0].prompt == expected_prompt
 
 
 # finalize
@@ -442,68 +427,54 @@ def test_route_after_verify_finalizes_a_pass() -> None:
     assert route_after_verify(state, settings=make_settings()) == "finalize"
 
 
-def test_route_after_verify_refines_a_failure_while_the_default_model_has_tries_left() -> None:
+def test_route_after_verify_refines_a_failure_with_rounds_left() -> None:
     state = GraphState(snippet=SNIPPET, attempts=[attempt(BAD_CODE)], problems=[BAD_CODE_PROBLEM])
 
-    assert route_after_verify(state, settings=make_settings(review=True)) == "refine"
+    assert route_after_verify(state, settings=make_settings()) == "refine"
 
 
-def test_route_after_verify_escalates_when_the_default_model_runs_out_of_tries() -> None:
+def test_route_after_verify_finalizes_a_failure_on_the_last_round() -> None:
     state = GraphState(
         snippet=SNIPPET,
-        attempts=[attempt(BAD_CODE), attempt(BAD_CODE, 2)],
+        attempts=[attempt(BAD_CODE, n) for n in (1, 2, 3)],
         problems=[BAD_CODE_PROBLEM],
     )
 
-    assert route_after_verify(state, settings=make_settings(review=True)) == "escalate"
+    assert route_after_verify(state, settings=make_settings()) == "finalize"
 
 
-def test_route_after_verify_refines_a_failure_while_the_fallback_model_has_tries_left() -> None:
-    state = GraphState(
-        snippet=SNIPPET,
-        attempts=[attempt(GOOD_CODE), sonnet(BAD_CODE, 2)],
-        review=review_call(MISSED),
-        problems=[BAD_CODE_PROBLEM],
-    )
-
-    assert route_after_verify(state, settings=make_settings(review=True)) == "refine"
-
-
-def test_route_after_verify_finalizes_a_failure_when_the_fallback_model_runs_out() -> None:
-    state = GraphState(
-        snippet=SNIPPET,
-        attempts=[attempt(GOOD_CODE), sonnet(BAD_CODE, 2), sonnet(BAD_CODE, 3)],
-        review=review_call(MISSED),
-        problems=[BAD_CODE_PROBLEM],
-    )
-
-    assert route_after_verify(state, settings=make_settings(review=True)) == "finalize"
-
-
-def test_route_after_verify_reviews_the_default_models_pass() -> None:
+def test_route_after_verify_reviews_a_pass_when_the_review_is_on() -> None:
     state = GraphState(snippet=SNIPPET, attempts=[attempt(GOOD_CODE)])
 
     assert route_after_verify(state, settings=make_settings(review=True)) == "review"
 
 
-def test_route_after_verify_reviews_a_pass_on_the_default_models_last_try() -> None:
-    state = GraphState(snippet=SNIPPET, attempts=[attempt(BAD_CODE), attempt(GOOD_CODE, 2)])
-
-    assert route_after_verify(state, settings=make_settings(review=True)) == "review"
-
-
-def test_route_after_verify_finalizes_the_fallback_models_pass_without_a_review() -> None:
+def test_route_after_verify_reviews_only_once() -> None:
     state = GraphState(
-        snippet=SNIPPET, attempts=[attempt(BAD_CODE), attempt(BAD_CODE, 2), sonnet(GOOD_CODE, 3)]
+        snippet=SNIPPET,
+        attempts=[attempt(GOOD_CODE), attempt(GOOD_CODE, 2)],
+        review=review_call(MISSED),
     )
 
     assert route_after_verify(state, settings=make_settings(review=True)) == "finalize"
 
 
-def test_route_after_review_escalates_when_issues_were_missed() -> None:
+def test_route_after_verify_skips_the_review_when_no_round_is_left_to_act_on_it() -> None:
+    state = GraphState(snippet=SNIPPET, attempts=[attempt(GOOD_CODE, n) for n in (1, 2, 3)])
+
+    assert route_after_verify(state, settings=make_settings(review=True)) == "finalize"
+
+
+def test_route_after_verify_refines_a_failure_before_any_review() -> None:
+    state = GraphState(snippet=SNIPPET, attempts=[attempt(BAD_CODE)], problems=[BAD_CODE_PROBLEM])
+
+    assert route_after_verify(state, settings=make_settings(review=True)) == "refine"
+
+
+def test_route_after_review_refines_when_issues_were_missed() -> None:
     state = GraphState(snippet=SNIPPET, attempts=[attempt(GOOD_CODE)], review=review_call(MISSED))
 
-    assert route_after_review(state) == "escalate"
+    assert route_after_review(state) == "refine"
 
 
 def test_route_after_review_finalizes_when_nothing_was_missed() -> None:
@@ -553,7 +524,7 @@ def test_a_review_that_finds_nothing_returns_the_draft() -> None:
     assert (state.metrics.rounds, state.metrics.reviews) == (1, 1)
 
 
-def test_missed_issues_are_added_and_fixed_by_the_fallback_model_then_verified() -> None:
+def test_missed_issues_are_added_and_fixed_in_a_verified_round() -> None:
     fixed = answer(GOOD_CODE).model_copy(update={"issues": [MISSED]})
     llm = FakeLLMClient([answer(GOOD_CODE), review_answer(MISSED), fixed])
     graph = build_graph(llm, [], make_settings(review=True))
@@ -567,37 +538,28 @@ def test_missed_issues_are_added_and_fixed_by_the_fallback_model_then_verified()
         "draft",
         "verify",
         "review",
-        "escalate",
+        "refine",
         "verify",
         "finalize",
     ]
-    assert [request.model for request in llm.requests] == [HAIKU, REVIEWER, SONNET]
+    assert [request.model for request in llm.requests] == [HAIKU, REVIEWER, HAIKU]
     assert "add has no docstring." in llm.requests[2].prompt
     assert state.result == fixed
     assert state.warnings == []
 
 
-def test_a_fallback_fix_that_fails_verification_gets_a_second_fallback_try() -> None:
+def test_a_revision_that_fails_verification_is_refined_on_the_fallback_model() -> None:
     script = [answer(GOOD_CODE), review_answer(MISSED), answer(BAD_CODE), answer(GOOD_CODE)]
 
     state, llm = run(script, review=True)
 
-    assert [request.model for request in llm.requests] == [HAIKU, REVIEWER, SONNET, SONNET]
+    assert [request.model for request in llm.requests] == [HAIKU, REVIEWER, HAIKU, SONNET]
     assert BAD_CODE_PROBLEM in llm.requests[3].prompt
     assert state.result == answer(GOOD_CODE)
     assert state.warnings == []
 
 
-def test_a_fallback_model_out_of_tries_returns_its_last_answer_with_warnings() -> None:
-    script = [answer(GOOD_CODE), review_answer(MISSED), answer(BAD_CODE), answer(BAD_CODE)]
-
-    state, llm = run(script, review=True)
-
-    assert [request.model for request in llm.requests] == [HAIKU, REVIEWER, SONNET, SONNET]
-    assert state.warnings == [BAD_CODE_PROBLEM]
-
-
-def test_a_pass_on_the_default_models_second_try_is_reviewed() -> None:
+def test_a_pass_in_round_two_is_reviewed_and_fixed_on_the_fallback_model() -> None:
     script = [answer(BAD_CODE), answer(GOOD_CODE), review_answer(MISSED), answer(GOOD_CODE)]
 
     state, llm = run(script, review=True)
@@ -606,12 +568,11 @@ def test_a_pass_on_the_default_models_second_try_is_reviewed() -> None:
     assert state.result == answer(GOOD_CODE)
 
 
-def test_a_default_model_out_of_tries_escalates_and_skips_the_review() -> None:
+def test_a_pass_in_the_last_round_is_not_reviewed() -> None:
     state, llm = run([answer(BAD_CODE), answer(BAD_CODE), answer(GOOD_CODE)], review=True)
 
     assert [request.model for request in llm.requests] == [HAIKU, HAIKU, SONNET]
     assert state.review is None
-    assert state.result == answer(GOOD_CODE)
 
 
 def test_a_failed_review_call_propagates_out_of_the_graph() -> None:
@@ -628,7 +589,7 @@ def test_a_failed_draft_is_refined_on_the_default_model() -> None:
     assert BAD_CODE_PROBLEM in llm.requests[1].prompt
 
 
-def test_the_default_model_out_of_tries_escalates_to_the_fallback_model() -> None:
+def test_round_three_escalates_to_the_fallback_model() -> None:
     state, llm = run([answer(BAD_CODE), answer(BAD_CODE), answer(GOOD_CODE)])
 
     assert [request.model for request in llm.requests] == [HAIKU, HAIKU, SONNET]
@@ -637,31 +598,30 @@ def test_the_default_model_out_of_tries_escalates_to_the_fallback_model() -> Non
     assert state.warnings == []
 
 
-def test_failing_every_try_of_both_models_returns_the_last_answer_with_warnings() -> None:
-    state, llm = run([answer(BAD_CODE)] * 4)
+def test_failing_every_round_returns_the_last_answer_with_warnings() -> None:
+    state, llm = run([answer(BAD_CODE)] * 3)
 
-    assert [request.model for request in llm.requests] == [HAIKU, HAIKU, SONNET, SONNET]
+    assert len(llm.requests) == 3
     assert state.result == answer(BAD_CODE)
     assert state.warnings == [BAD_CODE_PROBLEM]
 
 
-def test_a_cap_of_one_gives_each_model_a_single_try() -> None:
-    state, llm = run([answer(BAD_CODE)] * 2, max_rounds=1)
+def test_a_round_cap_of_one_never_refines() -> None:
+    state, llm = run([answer(BAD_CODE)], max_rounds=1)
 
-    assert [request.model for request in llm.requests] == [HAIKU, SONNET]
+    assert len(llm.requests) == 1
     assert state.warnings == [BAD_CODE_PROBLEM]
 
 
 def longest_script(max_rounds: int, review: bool) -> list[ScriptStep]:
-    """Script the longest run: every try of both models, with a review between them if it's on."""
-    if review:
-        default_tries = [*[answer(BAD_CODE)] * (max_rounds - 1), answer(GOOD_CODE)]
-        return [*default_tries, review_answer(MISSED), *[answer(BAD_CODE)] * max_rounds]
-    return [answer(BAD_CODE)] * (2 * max_rounds)
+    """Script the longest run: a pass that's reviewed when a round is left, then only failures."""
+    if review and max_rounds > 1:
+        return [answer(GOOD_CODE), review_answer(MISSED), *[answer(BAD_CODE)] * (max_rounds - 1)]
+    return [answer(BAD_CODE)] * max_rounds
 
 
 @pytest.mark.parametrize("review_on", [False, True], ids=["no-review", "review"])
-@pytest.mark.parametrize("max_rounds", [1, 2, 7])
+@pytest.mark.parametrize("max_rounds", [1, 3, 15])
 def test_the_step_limit_fits_the_longest_run_exactly(max_rounds: int, review_on: bool) -> None:
     # Two copies, since the one-step-short run consumes the first copy's script.
     script = longest_script(max_rounds, review_on)
@@ -673,7 +633,7 @@ def test_the_step_limit_fits_the_longest_run_exactly(max_rounds: int, review_on:
     one_step_short = graph.with_config(recursion_limit=limit - 1)
 
     assert graph.config["recursion_limit"] == limit
-    assert len(longest.attempts) == 2 * max_rounds
+    assert len(longest.attempts) == max_rounds
     with pytest.raises(GraphRecursionError):
         run_graph(one_step_short, SNIPPET)
 
@@ -733,7 +693,7 @@ def test_a_model_error_propagates_out_of_the_graph() -> None:
         run([LLMError("The API is overloaded.")])
 
 
-def test_the_graph_has_exactly_the_eight_nodes() -> None:
+def test_the_graph_has_exactly_the_seven_nodes() -> None:
     graph = build_graph(FakeLLMClient([]), [], make_settings())
 
     assert set(graph.get_graph().nodes) - {START, END} == NODES

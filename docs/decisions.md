@@ -74,7 +74,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D8. Claude Haiku 5.5, with Claude Sonnet 5.5 as the round-3 fallback
 
-*Decided Oct 13, 2026. Bar set Oct 17, 2026, before any eval results existed. Amended by D19: Sonnet no longer waits for round 3; it fixes what the review finds, or takes over when Haiku runs out of tries.*
+*Decided Oct 13, 2026. Bar set Oct 17, 2026, before any eval results existed.*
 
 - **Context:** Each run makes one to three model calls, so cost and latency add up at scale.
 - **Options:** Haiku alone; Sonnet alone; Haiku with escalation to Sonnet; a larger model.
@@ -143,7 +143,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D13. How the graph handles failures
 
-*Decided Oct 16, 2026. Amended by D18, then D19: the step limit is now `4 × max_rounds + 4`, plus one with the review on.*
+*Decided Oct 16, 2026. Amended by D18: with the review on, the step limit has one more step.*
 
 - **Context:** A run can fail in three ways: the input is unusable, a model call fails, or a rewrite still fails verification after the last round.
 - **Options:** record every failure in the state; raise every failure; treat each kind on its own terms.
@@ -203,7 +203,7 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D18. A second review by a different model, on by default only if it meets D8's bar
 
-*Decided Oct 18, 2026, before any eval run with the review. Overridden in part by D19: the review is on by default, and Sonnet makes the fix after it.*
+*Decided Oct 18, 2026, before any eval run with the review. D19 overrode its result on Oct 19, and D20 restored it the same day.*
 
 - **Context:** `verify` checks the rewrite, not the review. Nothing at run time checks whether the review missed an issue. On the full eval (D8's result), the design's misses came from two planted issues that no static tool flags: a database query inside a loop (`performance-query-per-item`) and a missing docstring (`documentation-missing-docstring`). On the README's demo file, one review reported 2 of 4 planted problems, missing the same two kinds.
 - **Options:** no run-time check, with misses measured offline only (as built until now); a second pass by the same model; a second review by a different Anthropic model; a second review by another company's model, such as GPT-6 Luna; a second reviewer that rewrites the whole answer rather than listing what's missing.
@@ -218,7 +218,7 @@ One entry per real decision: the context, the options, the choice, why, and what
   - **False alarms:** a reviewer told to look for misses may add nitpicks on clean code.
 - **What the eval can't show:** the reviewer's checklist was written after seeing which issues the design missed. It names categories, not cases, but gains on those two cases are partly in-sample. The 30 cases each plant one issue, so they barely test snippets with many problems, where a second review should matter most.
 - **Would change if:** with more time and budget, a reviewer from another company, starting with GPT-6 Luna, would be measured against the Sonnet reviewer on new multi-issue cases. If the review misses the bar only on cost, a cheaper reviewer comes first.
-- **Result (Oct 18, 2026): the review stays off by default.** Overridden by D19, which turns it on. On the eval (270 runs, $1.67, `evals/results/with-review-summary.json`), the design with the review met three of D8's criteria and missed three on their point estimates:
+- **Result (Oct 18, 2026): the review stays off by default.** On the eval (270 runs, $1.67, `evals/results/with-review-summary.json`), the design with the review met three of D8's criteria and missed three on their point estimates:
   1. Recall 100% against Sonnet alone's 94.4%: +5.6 points (95% CI 0 to +16.7). Pass.
   2. False alarms 20.8% against 0%: +20.8 points (95% CI +4.2 to +45.8). The point estimate fails; inconclusive.
   3. 100% of answers valid on the first try, reviews included. Pass.
@@ -229,21 +229,31 @@ One entry per real decision: the context, the options, the choice, why, and what
 
 ## D19. Haiku loops until it passes, Sonnet reviews and fixes, on by default
 
-*Decided Oct 19, 2026, by the developer, after D18's eval. Overrides D18's result on the default, and amends D8 and D13.*
+*Decided Oct 19, 2026, by the developer, after D18's eval. Overrode D18's result on the default. Reverted by D20 the same day, after its own eval.*
 
-- **Context:** D18's eval found the review did its job, with 100% recall, both blind spots found and no false alarms of its own. It missed D8's bar on cost (63% of Sonnet alone's), p95 latency (39.5 s) and false alarms (+20.8 points, from Haiku's drafts rather than the review). By D18's rule, it shipped off by default.
-- **Options:** keep D18's result, with the review opt-in; turn the review on in D18's flow; restructure the workflow around the review.
-- **Choice:** restructure, with the review on by default:
-  1. Haiku drafts, and refines until its rewrite passes `verify`, with at most 2 tries.
-  2. Haiku's passing answer goes to Sonnet's review.
-  3. If the review finds missed issues, Sonnet adds and fixes them (`escalate`) and refines until `verify` passes, with at most 2 tries, and the run finishes. If it finds none, Haiku's answer is final.
-  4. If Haiku runs out of tries without passing, Sonnet takes over the same way, without a review.
+- **Context:** D18's eval found the review did its job, with 100% recall, both blind spots found and no false alarms of its own, but it missed D8's bar on cost, p95 latency and false alarms, so it shipped off by default.
+- **Options:** keep D18's result; turn the review on in D18's flow; restructure the workflow around the review.
+- **Choice:** restructure, with the review on by default. Haiku drafts and refines until `verify` passes, with at most 2 tries. Haiku's passing answer goes to Sonnet's review. Missed issues go to Sonnet, which adds and fixes them and refines until `verify` passes, with at most 2 tries; with none, Haiku's answer is final. A Haiku that runs out of tries hands over to Sonnet without a review. Turning the review on overrode D18's rule, set before its eval, as a deliberate choice to pay for recall with cost and latency.
+- **Why:** quality first, as D8 sets out. The review was the only change that found the issues both models missed alone. Sonnet was to make the fix because it had reported the issues, and because 4 of the 19 Haiku fixes in D18's eval failed verification and needed Sonnet anyway.
+- **Result (Oct 19, 2026): reverted.** On the eval (270 runs, $2.14, `evals/results/workflow-d19-summary.json`), against Sonnet alone:
+  1. Recall 96.3% against 98.1%: −1.9 points (95% CI −5.6 to 0). Pass.
+  2. False alarms 12.5% against 4.2%: +8.3 points (95% CI 0 to +20.8). The point estimate passes; inconclusive.
+  3. 100% of answers valid on the first try. Pass.
+  4. p95 latency 44.9 s (95% CI 21.7 to 53.9). The point estimate fails; inconclusive.
+  5. Mean cost per snippet 96.2% of Sonnet alone's ($0.01204 against $0.01252; 95% CI 69.6% to 119.8%). Fail.
+  6. Every adversarial case passed in every run. Pass.
+- **What the result shows:** the workflow cost what Sonnet alone does and took twice as long at p95, with no better recall or false alarms, so Sonnet alone dominated it. The 22 runs whose review flagged something (26%) averaged $0.033 and 30 s, because a Sonnet review was followed by a full Sonnet rewrite. Sonnet's fix also dropped some of the review's findings: in the N+1 case, the review found the planted query in all 3 runs, and the final answer kept it in 1. The review raised its first false alarm, in 1 of 24 clean runs.
 
-  `DEVASSIST_MAX_ROUNDS` is now the tries for each model (default 2), `DEVASSIST_ESCALATION_ROUND` is gone, and `--no-review` skips the review. The step limit is `4 × max_rounds + 4`, plus 1 with the review on.
+## D20. Back to D18: Haiku by default, the review opt-in
+
+*Decided Oct 19, 2026.*
+
+- **Context:** D19's eval found its workflow dominated by Sonnet alone.
+- **Options:** go back to D18's workflow, with the review off by default; make Sonnet alone the default; keep D19 and merge the review's findings into the final answer in code.
+- **Choice:** go back to D18. The pull request that made D19 is reverted: Haiku answers rounds 1 and 2 and Sonnet round 3 by default, and `--review` works as D18 describes, with Haiku adding and fixing what Sonnet's review finds. The analyzers still ignore `# noqa` and `# nosec` (D5), a fix found while testing D19.
 - **Why:**
-  - **Quality first,** as D8 sets out. The review was the only change that found the issues both models missed alone, and it added no false alarms of its own.
-  - **Sonnet makes the fix after a review,** because the stronger model reported the issues, and because 4 of the 19 Haiku fixes in D18's eval failed verification and needed Sonnet anyway.
-  - **Two tries each:** Haiku needed a second try in 6 of 168 first-eval runs and never a third, and Sonnet fixed every round-3 case in D18's eval on its first try.
-- **What it overrides, openly:** D18 set, before its eval, that the review ships on only if it meets all of D8's criteria, and it missed three. Turning it on anyway is a deliberate choice to pay for recall with cost and latency, not a different reading of the result. The default now costs several times what Haiku alone does per snippet, and the false-alarm criterion is still unmet because of Haiku's drafts (D8's replication).
-- **Not yet measured:** neither eval ran this workflow. The runner's design configuration is now this workflow, and its result goes here once it runs.
-- **Would change if:** its eval showed recall no better than Haiku alone's, or cost and latency proved too high for how devassist is used. The review would then go back behind a flag, as in D18.
+  - **Every configuration devassist ships has been measured:** the default by the first eval and its replication (D8), and `--review` by D18's eval.
+  - **The default stays the cheap option,** about $0.0009 per snippet.
+  - **Users who want more have measured choices.** `--review` found the most planted issues (100% in D18's eval) at about 63% of Sonnet alone's cost, with more false alarms and a p95 of 39.5 s. `--model claude-sonnet-5-5` is quieter and simpler, with one false alarm in three evals, at about 13 times Haiku's cost.
+  - **Making Sonnet the default** would rewrite D8's cost case on the deadline day, for a gap made of low-severity false alarms and a few points of recall.
+- **Would change if:** the review's findings were merged into the final answer in code and a cheaper fix path measured well; or devassist were used where any finding blocks a build, where D8 already calls for Sonnet.

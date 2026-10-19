@@ -275,7 +275,7 @@ def describe_step(node: str, update: Mapping[str, Any]) -> list[str]:
         return [f"{node}: input rejected: {error}" if error else f"{node}: input accepted"]
     if node == "run_static_checks":
         return [f"{node}: {_plural(len(update['findings']), 'finding')}"]
-    if node in ("draft", "refine", "escalate"):
+    if node in ("draft", "refine"):
         attempt = update["attempts"][-1]
         line = (
             f"{node}: round {attempt.round} on {attempt.model}, "
@@ -356,20 +356,17 @@ def build_app(
         ] = OutputFormat.MARKDOWN,
         model: Annotated[
             str | None,
-            typer.Option(
-                help="The model that drafts and refines first. Overrides DEVASSIST_MODEL."
-            ),
+            typer.Option(help="Model for the rounds before escalation. Overrides DEVASSIST_MODEL."),
         ] = None,
         max_rounds: Annotated[
             int | None,
-            typer.Option(min=1, help="Most tries for each model. Overrides DEVASSIST_MAX_ROUNDS."),
+            typer.Option(min=1, help="Most model answers per run. Overrides DEVASSIST_MAX_ROUNDS."),
         ] = None,
         review: Annotated[
             bool | None,
             typer.Option(
                 "--review/--no-review",
-                help="Have a second model check for missed issues (default on). "
-                "Overrides DEVASSIST_REVIEW.",
+                help="Have a second model check for missed issues. Overrides DEVASSIST_REVIEW.",
             ),
         ] = None,
         language: Annotated[

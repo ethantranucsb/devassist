@@ -1,11 +1,8 @@
-"""The LangGraph workflow: static checks, the default model's loop, a review, the fallback's loop.
+"""The LangGraph workflow: static checks, a draft, then verify and refine up to the round cap.
 
-The default model drafts, and refines until its rewrite passes verify or it
-runs out of tries. A pass goes to the review, where a second model looks
-for issues the first answer missed; any it finds go to the fallback model,
-which adds and fixes them and refines until verify passes or it runs out of
-tries. A default model that runs out of tries hands over to the fallback
-model directly, without a review (docs/decisions.md D19).
+When the review setting is on, a passing answer also goes to a second model,
+which looks for issues the first review missed; any it finds are added and
+fixed in another round, which verify checks like any other.
 
 This is the only module that imports LangGraph. Each node is a plain function
 of the state plus the dependencies it needs, so tests can call it directly.
@@ -52,11 +49,27 @@ def _analyze(code: str, analyzers: Sequence[Analyzer]) -> list[Finding]:
     return [finding for analyzer in analyzers for finding in analyzer.analyze(code)]
 
 
-def _ask_model(
-    round_number: int, prompt: str, llm: LLMClient, settings: Settings, *, fallback: bool
-) -> Attempt:
-    """Send one round's prompt to the default model, or to the fallback model, and record it."""
-    model = settings.fallback_model if fallback else settings.model
+def model_for_round(round_number: int, settings: Settings) -> str:
+    """Pick the model for a round.
+
+    Args:
+        round_number: The round about to run, counting from 1.
+        settings: The default model, the fallback model and the escalation round.
+
+    Returns:
+        The fallback model from the escalation round on, and the default model before it.
+    """
+    if round_number >= settings.escalation_round:
+        return settings.fallback_model
+    return settings.model
+
+
+def _ask_model(round_number: int, prompt: str, llm: LLMClient, settings: Settings) -> Attempt:
+    """Send one round's prompt to that round's model and record the answer."""
+    model = model_for_round(round_number, settings)
+    escalated = model != settings.model
+    if escalated:
+        logger.info("Round %d: escalating from %s to %s", round_number, settings.model, model)
     request = LLMRequest(model=model, system=system_prompt(), prompt=prompt, output_type=Analysis)
     result = llm.generate(request)
     return Attempt(
@@ -65,16 +78,9 @@ def _ask_model(
         analysis=result.output,
         input_tokens=result.input_tokens,
         output_tokens=result.output_tokens,
-        fallback=fallback,
-        escalated=fallback and model != settings.model,
+        escalated=escalated,
         retried=result.retried,
     )
-
-
-def _tries(state: GraphState) -> int:
-    """Count the latest answer's model's tries: the default model's, or the fallback's."""
-    fallback = state.attempts[-1].fallback
-    return sum(1 for attempt in state.attempts if attempt.fallback == fallback)
 
 
 def _too_deeply_nested(code: str) -> bool:
@@ -116,9 +122,9 @@ def run_static_checks(state: GraphState, *, analyzers: Sequence[Analyzer]) -> Up
 
 
 def draft(state: GraphState, *, llm: LLMClient, settings: Settings) -> Update:
-    """Ask the default model for its first answer, given the snippet and its findings."""
-    prompt = draft_prompt(state.snippet, state.findings)
-    return {"attempts": [_ask_model(1, prompt, llm, settings, fallback=False)]}
+    """Ask the model for its first answer, given the snippet and its findings."""
+    attempt = _ask_model(1, draft_prompt(state.snippet, state.findings), llm, settings)
+    return {"attempts": [attempt]}
 
 
 def verify(state: GraphState, *, analyzers: Sequence[Analyzer]) -> Update:
@@ -153,35 +159,18 @@ def review(state: GraphState, *, llm: LLMClient, settings: Settings) -> Update:
 
 
 def refine(state: GraphState, *, llm: LLMClient, settings: Settings) -> Update:
-    """Ask the same model as the latest answer to fix the problems verify found in it."""
-    latest = state.attempts[-1]
-    prompt = refine_prompt(state.snippet, state.findings, latest.analysis, state.problems)
-    attempt = _ask_model(latest.round + 1, prompt, llm, settings, fallback=latest.fallback)
-    return {"attempts": [attempt]}
+    """Ask the model to fix what verify found, or to add and fix what the review found.
 
-
-def escalate(state: GraphState, *, llm: LLMClient, settings: Settings) -> Update:
-    """Hand the snippet to the fallback model for its first try.
-
-    After a review that found missed issues, the fallback model adds and
-    fixes them. After the default model ran out of tries, it fixes the
-    problems verify found instead.
+    Verify's problems come first. A latest answer that passed verify reaches
+    this node only after a review that found missed issues.
     """
     latest = state.attempts[-1]
-    round_number = latest.round + 1
     if not state.problems and state.review is not None:
         missed = state.review.review.missed_issues
         prompt = revise_prompt(state.snippet, state.findings, latest.analysis, missed)
     else:
         prompt = refine_prompt(state.snippet, state.findings, latest.analysis, state.problems)
-    if settings.fallback_model != settings.model:
-        logger.info(
-            "Round %d: escalating from %s to %s",
-            round_number,
-            settings.model,
-            settings.fallback_model,
-        )
-    return {"attempts": [_ask_model(round_number, prompt, llm, settings, fallback=True)]}
+    return {"attempts": [_ask_model(latest.round + 1, prompt, llm, settings)]}
 
 
 def finalize(state: GraphState) -> Update:
@@ -195,46 +184,44 @@ def route_after_validation(state: GraphState) -> str:
 
 
 def route_after_verify(state: GraphState, *, settings: Settings) -> str:
-    """Route a rewrite by whether it passed, and by whose try it was.
+    """Refine a failure with rounds left; review a first pass when the review is on.
 
-    A failure is refined by the same model while it has tries left. When the
-    default model runs out, the fallback model takes over; when the fallback
-    runs out, the run finalizes with warnings. The default model's pass goes
-    to the review, when it's on, at most once; the fallback model's pass is final.
+    A pass is reviewed only once, and only while a round is left to fix what
+    the review finds. Everything else goes to finalize: a pass, or a failure
+    on the last round.
     """
-    fallback = state.attempts[-1].fallback
+    rounds_left = state.attempts[-1].round < settings.max_rounds
     if state.problems:
-        if _tries(state) < settings.max_rounds:
-            return "refine"
-        return "finalize" if fallback else "escalate"
-    if settings.review and not fallback and state.review is None:
+        return "refine" if rounds_left else "finalize"
+    if settings.review and state.review is None and rounds_left:
         return "review"
     return "finalize"
 
 
 def route_after_review(state: GraphState) -> str:
-    """Escalate to add and fix any missed issues; finalize if the review found none."""
+    """Refine to add and fix any missed issues; finalize if the review found none."""
     if state.review is not None and state.review.review.missed_issues:
-        return "escalate"
+        return "refine"
     return "finalize"
 
 
 def step_limit(max_rounds: int, *, review: bool = False) -> int:
     """Count the LangGraph steps in the longest possible run.
 
-    The longest run is validate_input and run_static_checks, every try of
-    the default model, each followed by verify, the review if it's on, then
-    every try of the fallback model, each followed by verify, then finalize.
-    LangGraph also counts its own starting step.
+    The longest run is validate_input, run_static_checks, draft and verify,
+    then refine and verify for each later round, then finalize. LangGraph
+    also counts its own starting step. With the review on, one review can
+    run before a later round, so a round cap above one adds a step.
 
     Args:
-        max_rounds: The most tries for each model.
+        max_rounds: The round cap.
         review: Whether the second review is on.
 
     Returns:
         The step limit that lets the longest run finish, and nothing longer.
     """
-    return 4 * max_rounds + 4 + (1 if review else 0)
+    review_steps = 1 if review and max_rounds > 1 else 0
+    return 2 * max_rounds + 4 + review_steps
 
 
 def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: Settings) -> Graph:
@@ -244,10 +231,11 @@ def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: 
     whole design; the review setting decides whether a run ever reaches it.
 
     Args:
-        llm_client: Answers the draft, refine, review and escalate prompts.
+        llm_client: Answers the draft, refine and review prompts.
         analyzers: Check the snippet and every rewrite. Include ``SyntaxAnalyzer``,
             or a rewrite that doesn't parse can't be caught.
-        settings: The models, the tries for each, the size limit and the review.
+        settings: The models, the round cap, the escalation round, the size
+            limit and the review.
 
     Returns:
         The compiled graph. Its step limit is exactly what the longest run
@@ -260,7 +248,6 @@ def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: 
     builder.add_node("verify", partial(verify, analyzers=analyzers))
     builder.add_node("review", partial(review, llm=llm_client, settings=settings))
     builder.add_node("refine", partial(refine, llm=llm_client, settings=settings))
-    builder.add_node("escalate", partial(escalate, llm=llm_client, settings=settings))
     builder.add_node("finalize", finalize)
 
     builder.add_edge(START, "validate_input")
@@ -272,11 +259,10 @@ def build_graph(llm_client: LLMClient, analyzers: Sequence[Analyzer], settings: 
     builder.add_conditional_edges(
         "verify",
         partial(route_after_verify, settings=settings),
-        ["refine", "review", "escalate", "finalize"],
+        ["refine", "review", "finalize"],
     )
-    builder.add_conditional_edges("review", route_after_review, ["escalate", "finalize"])
+    builder.add_conditional_edges("review", route_after_review, ["refine", "finalize"])
     builder.add_edge("refine", "verify")
-    builder.add_edge("escalate", "verify")
     builder.add_edge("finalize", END)
     limit = step_limit(settings.max_rounds, review=settings.review)
     return builder.compile().with_config(recursion_limit=limit)
