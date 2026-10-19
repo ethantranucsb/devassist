@@ -1,7 +1,7 @@
 from typing import Any
 
 from devassist.exceptions import LLMError, SchemaValidationError
-from devassist.models import Analysis, Category, Issue, RunMetrics, Severity
+from devassist.models import Analysis, Category, Issue, Review, RunMetrics, Severity
 from evals.cases import Behavior, Difficulty, EvalCase, ExpectedIssue, Kind
 from evals.scoring import RunRecord, is_matched, is_near_miss, reaches_model, score_run
 
@@ -56,14 +56,20 @@ def analysis(*issues: Issue, code: str = "x = 1\n") -> Analysis:
 
 
 def metrics(
-    rounds: int = 1, *, retries: int = 0, escalations: int = 0, cost: float | None = 0.001
+    rounds: int = 1,
+    *,
+    retries: int = 0,
+    escalations: int = 0,
+    reviews: int = 0,
+    cost: float | None = 0.001,
 ) -> RunMetrics:
-    """Return run metrics with these rounds, retries, escalations and cost."""
+    """Return run metrics with these rounds, retries, escalations, reviews and cost."""
     return RunMetrics(
         rounds=rounds,
         models=["claude-haiku-5-5"] * rounds,
         escalations=escalations,
         retries=retries,
+        reviews=reviews,
         input_tokens=100,
         output_tokens=50,
         cost_usd=cost,
@@ -229,6 +235,35 @@ def test_other_failures_add_no_responses() -> None:
     score = score_run(PLANTED, failed(LLMError.__name__))
 
     assert (score.responses, score.first_try_valid) == (0, 0)
+
+
+def test_a_review_answer_counts_toward_first_try_validity() -> None:
+    reviewed = answered(analysis(), metrics=metrics(rounds=2, reviews=1, retries=1))
+
+    score = score_run(PLANTED, reviewed)
+
+    assert (score.responses, score.first_try_valid) == (3, 2)
+
+
+# The second review
+
+
+def test_a_run_records_whether_its_review_flagged_missed_issues() -> None:
+    flagged = answered(analysis(), review=Review(missed_issues=[issue("documentation", 1)]))
+    clear = answered(analysis(), review=Review(missed_issues=[]))
+
+    assert score_run(PLANTED, flagged).review_flagged is True
+    assert score_run(PLANTED, clear).review_flagged is False
+
+
+def test_a_run_without_a_review_has_no_review_flag() -> None:
+    assert score_run(PLANTED, answered(analysis())).review_flagged is None
+
+
+def test_records_saved_before_reviews_existed_still_load() -> None:
+    saved = answered(analysis()).model_dump(mode="json", exclude={"review"})
+
+    assert RunRecord.model_validate(saved).review is None
 
 
 # Verification, rounds, cost and latency
