@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field
 
 from devassist.exceptions import SchemaValidationError
-from devassist.models import Analysis, Issue, RunMetrics
+from devassist.models import Analysis, Issue, Review, RunMetrics
 from evals.cases import Behavior, EvalCase, ExpectedIssue, Kind
 
 
@@ -29,6 +29,8 @@ class RunRecord(BaseModel):
         result: The final answer, if the run reached one.
         warnings: Problems the final answer still had after the last round.
         metrics: Rounds, tokens and cost; ``None`` if the run raised an error.
+        review: What the second review found, if one ran. Records saved
+            before reviews existed load with ``None``.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -43,6 +45,7 @@ class RunRecord(BaseModel):
     result: Analysis | None = None
     warnings: list[str] = Field(default_factory=list)
     metrics: RunMetrics | None = None
+    review: Review | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +62,8 @@ class RunScore:
         first_try_valid: How many of those passed without the retry.
         rounds: Model answers in the run; 0 if it failed, since that isn't reported.
         escalated: Whether any round used the fallback model.
+        review_flagged: Whether the second review found missed issues; ``None``
+            if no review ran.
         cost_usd: The run's cost, or ``None`` if unknown, as for a failed run.
         latency_seconds: Wall-clock time.
         failed: Whether the run raised an error.
@@ -73,6 +78,7 @@ class RunScore:
     first_try_valid: int
     rounds: int
     escalated: bool
+    review_flagged: bool | None
     cost_usd: float | None
     latency_seconds: float
     failed: bool
@@ -126,9 +132,13 @@ def _adversarial_pass(case: EvalCase, record: RunRecord) -> bool:
 
 
 def _responses(record: RunRecord) -> tuple[int, int]:
-    """Count the model answers checked against the schema, and those valid on the first try."""
+    """Count the model answers checked against the schema, and those valid on the first try.
+
+    A review's answer is checked against its own schema, so it counts too.
+    """
     if record.metrics is not None:
-        return record.metrics.rounds, record.metrics.rounds - record.metrics.retries
+        answers = record.metrics.rounds + record.metrics.reviews
+        return answers, answers - record.metrics.retries
     if record.error_type == SchemaValidationError.__name__:
         return 1, 0  # the answer that failed twice; earlier rounds weren't reported
     return 0, 0
@@ -170,6 +180,7 @@ def score_run(case: EvalCase, record: RunRecord) -> RunScore:
         first_try_valid=first_try_valid,
         rounds=metrics.rounds if metrics is not None else 0,
         escalated=metrics is not None and metrics.escalations > 0,
+        review_flagged=None if record.review is None else bool(record.review.missed_issues),
         cost_usd=metrics.cost_usd if metrics is not None else None,
         latency_seconds=record.latency_seconds,
         failed=record.error is not None,

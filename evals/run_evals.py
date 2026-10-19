@@ -19,6 +19,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,8 +34,8 @@ from devassist.exceptions import DevassistError
 from devassist.llm import LLMClient
 from devassist.llm.anthropic_client import AnthropicClient, output_schema
 from devassist.metrics import TOKENS_PER_MILLION, price_for
-from devassist.models import Analysis
-from devassist.prompts import draft_prompt, system_prompt
+from devassist.models import Analysis, Review
+from devassist.prompts import draft_prompt, review_prompt, review_system_prompt, system_prompt
 from evals.cases import EvalCase, load_cases
 from evals.configurations import CONFIGURATIONS, Configuration, settings_for
 from evals.scoring import RunRecord, reaches_model
@@ -57,6 +58,8 @@ OUTPUT_TOKENS_PER_CODE_TOKEN = (
     3  # the documentation and the full rewrite, each about the code's size
 )
 OUTPUT_TOKENS_FIXED = 400  # the summary and the issues
+REVIEW_OUTPUT_TOKENS = 300  # a few missed issues, or an empty list
+LABEL_PATTERN = re.compile(r"[a-z0-9]+(-[a-z0-9]+)*")  # names the result files
 
 
 def _anthropic_client(settings: Settings) -> LLMClient:
@@ -130,6 +133,7 @@ def run_case(
         result=state.result,
         warnings=state.warnings,
         metrics=state.metrics,
+        review=None if state.review is None else state.review.review,
     )
 
 
@@ -223,9 +227,15 @@ def estimate_cost(
 
     Returns:
         The typical and worst-case cost. Inputs devassist rejects cost nothing.
+        With the review on, both include one review call: the typical run
+        passes, is reviewed and needs nothing more; the worst also uses every
+        round after it.
     """
     settings = settings_for(configuration, base_settings)
     fixed_input = _tokens(system_prompt()) + _tokens(json.dumps(output_schema(Analysis)))
+    review_fixed_input = _tokens(review_system_prompt()) + _tokens(
+        json.dumps(output_schema(Review))
+    )
     typical = worst = 0.0
     for case in cases:
         if not reaches_model(case):
@@ -239,8 +249,14 @@ def estimate_cost(
             _call_cost(model_for_round(round_number, settings), draft_input + code, output)
             for round_number in range(2, settings.max_rounds + 1)
         )
-        typical += first
-        worst += first + later
+        review = 0.0
+        if settings.review:
+            # The review reads the snippet and the reported issues, about the fixed output.
+            review_input = review_fixed_input + _tokens(review_prompt(case.code, []))
+            review_input += OUTPUT_TOKENS_FIXED
+            review = _call_cost(settings.review_model, review_input, REVIEW_OUTPUT_TOKENS)
+        typical += first + review
+        worst += first + review + later
     return CostEstimate(typical_usd=typical * runs, worst_usd=worst * runs)
 
 
@@ -259,7 +275,8 @@ def render_estimate(
             "",
             *format_table(["config", "typical", "worst"], rows),
             "",
-            "typical: every run passes in its first round. worst: every run uses every round.",
+            "typical: every run passes in its first round, and any review finds nothing missed.",
+            "worst: every run uses every round.",
             f"Token counts are rough (about {CHARS_PER_TOKEN} characters per token); "
             "the smoke run measures real ones.",
         ]
@@ -297,6 +314,15 @@ def _positive_int(text: str) -> int:
     return value
 
 
+def _label(text: str) -> str:
+    """Accept a label that is safe in a file name, for argparse."""
+    if LABEL_PATTERN.fullmatch(text) is None:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} must be lowercase letters, digits and hyphens, such as with-review"
+        )
+    return text
+
+
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     """Parse the command line."""
     parser = argparse.ArgumentParser(
@@ -325,6 +351,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--dry-run", action="store_true", help="estimate the cost without calling the API"
+    )
+    parser.add_argument(
+        "--label",
+        type=_label,
+        help="name the result files <label>-runs.jsonl and so on (default: smoke or full)",
     )
     return parser.parse_args(argv)
 
@@ -374,7 +405,7 @@ def main(
             "LangSmith tracing is on: every snippet and answer in this eval is sent to LangSmith."
         )
 
-    label = "smoke" if args.smoke else "full"
+    label = args.label or ("smoke" if args.smoke else "full")
     results_dir.mkdir(parents=True, exist_ok=True)
     total = len(cases) * args.runs * len(configurations)
     runs_path = results_dir / f"{label}-runs.jsonl"

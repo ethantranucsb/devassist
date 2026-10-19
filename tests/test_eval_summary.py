@@ -1,9 +1,10 @@
+import re
 from collections.abc import Sequence
 
 import pytest
 
-from devassist.config import DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL
-from devassist.models import Analysis, Category, Issue, RunMetrics, Severity
+from devassist.config import DEFAULT_FALLBACK_MODEL, DEFAULT_MODEL, DEFAULT_REVIEW_MODEL
+from devassist.models import Analysis, Category, Issue, Review, RunMetrics, Severity
 from evals.cases import Behavior, Difficulty, EvalCase, ExpectedIssue, Kind
 from evals.configurations import BASELINE, CONFIGURATIONS, DESIGN
 from evals.scoring import RunRecord
@@ -223,6 +224,28 @@ def test_first_try_validity_is_counted_over_responses() -> None:
     assert design_summary(records).first_try_valid == pytest.approx(2 / 3)
 
 
+def test_the_review_flag_rate_is_the_share_of_reviewed_runs_whose_review_found_misses() -> None:
+    records = [
+        review(DESIGN, EASY, 1).model_copy(update={"review": Review(missed_issues=[BUG])}),
+        review(DESIGN, EASY, 2).model_copy(update={"review": Review(missed_issues=[])}),
+        review(DESIGN, EASY, 3),  # passed only in the last round, so never reviewed
+    ]
+
+    result = design_summary(records)
+
+    assert result.reviewed_runs == 2
+    assert result.review_flag_rate == pytest.approx(1 / 2)
+    assert result.review_model == DEFAULT_REVIEW_MODEL
+
+
+def test_a_configuration_without_the_review_has_no_review_measures() -> None:
+    scores = score_records(CASES, run_set(BASELINE))[BASELINE]
+
+    result = summarize_config(CONFIGURATIONS[BASELINE], CASES, scores)
+
+    assert (result.reviewed_runs, result.review_flag_rate, result.review_model) == (0, None, None)
+
+
 def test_adversarial_failures_are_listed_by_case() -> None:
     result = design_summary(run_set(DESIGN, rejected_ok=2))
 
@@ -362,3 +385,18 @@ def test_the_report_marks_an_inconclusive_criterion_with_its_point_estimate() ->
 
 def test_the_report_explains_a_missing_verdict() -> None:
     assert "No verdict" in render_report(summary_of(run_set(DESIGN), configs=(DESIGN,)))
+
+
+def test_the_report_shows_how_often_the_review_flagged_misses() -> None:
+    flagged = Review(missed_issues=[BUG])
+    design = [record.model_copy(update={"review": flagged}) for record in run_set(DESIGN)]
+
+    lines = render_report(summary_of(design, run_set(BASELINE))).splitlines()
+
+    def cells(name: str) -> list[str]:
+        line = next(line for line in lines if line.startswith(f"{name} "))
+        return re.split(r"\s{2,}", line)
+
+    column = cells("config").index("review flagged")
+    assert cells(DESIGN)[column] == "100.0%"
+    assert cells(BASELINE)[column] == "-"

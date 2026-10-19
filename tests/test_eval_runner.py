@@ -1,23 +1,28 @@
 import itertools
 import json
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
+from pydantic import BaseModel
 
 from devassist.agent import Graph
 from devassist.analyzers import Analyzer
 from devassist.config import (
     DEFAULT_FALLBACK_MODEL,
     DEFAULT_MODEL,
+    DEFAULT_REVIEW_MODEL,
     ESCALATION_ROUND,
     MAX_ROUNDS,
     MAX_SNIPPET_CHARS,
     Settings,
 )
 from devassist.exceptions import LLMError, MissingAPIKeyError
-from devassist.llm import FakeLLMClient, LLMClient
-from devassist.models import Analysis
+from devassist.llm import FakeLLMClient, LLMClient, LLMRequest, LLMResult
+from devassist.llm.fake import FAKE_INPUT_TOKENS, FAKE_OUTPUT_TOKENS
+from devassist.models import Analysis, Review
 from evals.cases import Behavior, EvalCase, Kind, load_cases
 from evals.configurations import BASELINE, CONFIGURATIONS, DESIGN, settings_for
 from evals.run_evals import CostEstimate, build_graphs, estimate_cost, main, run_case, run_eval
@@ -26,6 +31,37 @@ from evals.scoring import RunRecord
 ANSWER = Analysis(
     summary="Sets x.", documentation="Sets x to 1.", issues=[], improved_code="x = 1\n"
 )
+NOTHING_MISSED = Review(missed_issues=[])
+
+
+class AnswersByType(LLMClient):
+    """Answers every request with a fixed answer of the type it asks for.
+
+    Runs happen in parallel, so a script that answers calls in order can't
+    know whether a draft or a review comes next.
+    """
+
+    def __init__(self, *answers: BaseModel) -> None:
+        self._answers = {type(answer): answer for answer in answers}
+        self.requests: list[LLMRequest[Any]] = []
+
+    def generate[T: BaseModel](self, request: LLMRequest[T]) -> LLMResult[T]:
+        self.requests.append(request)
+        answer = self._answers[request.output_type]
+        assert isinstance(answer, request.output_type)
+        return LLMResult(
+            output=answer,
+            model=request.model,
+            input_tokens=FAKE_INPUT_TOKENS,
+            output_tokens=FAKE_OUTPUT_TOKENS,
+        )
+
+
+def answers() -> AnswersByType:
+    """Return a client whose drafts pass and whose reviews find nothing missing."""
+    return AnswersByType(ANSWER, NOTHING_MISSED)
+
+
 CASE = EvalCase(id="clean-case", kind=Kind.CLEAN, snippet="x = 1\n")
 OTHER = EvalCase(id="clean-other", kind=Kind.CLEAN, snippet="y = 2\n")
 REJECTED = EvalCase(
@@ -94,19 +130,45 @@ def test_settings_for_resets_the_loop_settings_to_their_shipped_values() -> None
     )
 
 
+def test_only_the_design_gets_the_second_review() -> None:
+    assert CONFIGURATIONS[DESIGN].review is True
+    assert CONFIGURATIONS["haiku"].review is False
+    assert CONFIGURATIONS[BASELINE].review is False
+
+
+def test_settings_for_sets_the_review_whatever_the_local_settings_say() -> None:
+    local = Settings.model_construct(review=True, review_model="claude-local-reviewer")
+
+    design = settings_for(CONFIGURATIONS[DESIGN], local)
+    haiku = settings_for(CONFIGURATIONS["haiku"], local)
+
+    assert (design.review, design.review_model) == (True, DEFAULT_REVIEW_MODEL)
+    assert haiku.review is False
+
+
 # Running one case
 
 
-def test_run_case_records_the_answer_metrics_and_latency() -> None:
-    graph = graphs_for(FakeLLMClient([ANSWER]), DESIGN)[DESIGN]
+def test_run_case_records_the_answer_metrics_review_and_latency() -> None:
+    graph = graphs_for(answers(), DESIGN)[DESIGN]
 
     record = run_case(graph, CASE, DESIGN, 2, clock=ticking_clock())
 
     assert (record.config, record.case_id, record.run) == (DESIGN, CASE.id, 2)
     assert record.result == ANSWER
-    assert record.metrics is not None and record.metrics.rounds == 1
+    assert record.metrics is not None
+    assert (record.metrics.rounds, record.metrics.reviews) == (1, 1)
+    assert record.review == NOTHING_MISSED
     assert record.error is None
     assert record.latency_seconds == 1.0
+
+
+def test_a_run_without_a_review_records_none() -> None:
+    graph = graphs_for(answers(), BASELINE)[BASELINE]
+
+    record = run_case(graph, CASE, BASELINE, 1)
+
+    assert record.review is None
 
 
 def test_a_model_error_becomes_a_failed_run_instead_of_stopping_the_eval() -> None:
@@ -134,7 +196,7 @@ def test_a_rejected_input_is_recorded_without_any_model_call() -> None:
 
 
 def test_run_eval_runs_every_case_under_every_configuration() -> None:
-    client = FakeLLMClient([ANSWER] * 20)
+    client = answers()
     finished: list[RunRecord] = []
 
     records = run_eval(
@@ -159,7 +221,7 @@ def test_runs_alternate_between_configurations_so_a_slow_api_affects_all_alike()
 
     run_eval(
         [CASE, OTHER],
-        graphs_for(FakeLLMClient([ANSWER] * 8), DESIGN, BASELINE),
+        graphs_for(answers(), DESIGN, BASELINE),
         2,
         workers=1,
         on_record=finished.append,
@@ -189,15 +251,24 @@ def test_inputs_devassist_rejects_cost_nothing() -> None:
     assert estimate == CostEstimate(typical_usd=0.0, worst_usd=0.0)
 
 
-def test_the_design_starts_on_haiku_and_its_worst_case_lies_between_the_others() -> None:
+def test_the_designs_estimate_lies_between_haiku_alone_and_sonnet_alone() -> None:
     def estimate(name: str) -> CostEstimate:
         return estimate_cost(ALL_CASES, CONFIGURATIONS[name], 3, base_settings())
 
     design, haiku, sonnet = estimate(DESIGN), estimate("haiku"), estimate(BASELINE)
 
-    assert design.typical_usd == pytest.approx(haiku.typical_usd)
+    assert haiku.typical_usd < design.typical_usd < sonnet.typical_usd
     assert haiku.worst_usd < design.worst_usd < sonnet.worst_usd
     assert all(e.typical_usd < e.worst_usd for e in (design, haiku, sonnet))
+
+
+def test_the_review_is_the_only_difference_between_the_design_and_haiku_alone_typically() -> None:
+    without_review = replace(CONFIGURATIONS[DESIGN], review=False)
+
+    design = estimate_cost(ALL_CASES, without_review, 3, base_settings())
+    haiku = estimate_cost(ALL_CASES, CONFIGURATIONS["haiku"], 3, base_settings())
+
+    assert design.typical_usd == pytest.approx(haiku.typical_usd)
 
 
 def test_the_estimate_grows_in_proportion_to_the_runs() -> None:
@@ -234,7 +305,7 @@ def test_the_dry_run_prints_an_estimate_without_calling_the_api(
 def test_a_smoke_run_writes_raw_records_a_summary_and_a_csv(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    client = FakeLLMClient([ANSWER] * 200)
+    client = answers()
 
     code = main(
         ["--smoke", "--runs", "1", "--configs", DESIGN, BASELINE],
@@ -261,6 +332,31 @@ def test_a_smoke_run_writes_raw_records_a_summary_and_a_csv(
     assert "D8" in capsys.readouterr().out
 
 
+def test_a_label_names_the_result_files(tmp_path: Path) -> None:
+    main(
+        ["--smoke", "--runs", "1", "--configs", BASELINE, "--label", "with-review"],
+        make_llm=answering(answers()),
+        make_analyzers=no_analyzers,
+        load_settings=base_settings,
+        results_dir=tmp_path,
+    )
+
+    names = sorted(path.name for path in tmp_path.iterdir())
+    assert names == ["with-review-cases.csv", "with-review-runs.jsonl", "with-review-summary.json"]
+    summary = json.loads((tmp_path / "with-review-summary.json").read_text(encoding="utf-8"))
+    assert summary["label"] == "with-review"
+
+
+@pytest.mark.parametrize("label", ["../escape", "Full", "with space", ""])
+def test_a_label_must_be_safe_in_a_file_name(
+    label: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        main(["--label", label, "--dry-run"], make_llm=no_client, load_settings=base_settings)
+
+    assert "lowercase letters, digits and hyphens" in capsys.readouterr().err
+
+
 def test_a_missing_api_key_stops_before_any_run_and_keeps_earlier_results(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -284,7 +380,7 @@ def test_the_runner_warns_when_langsmith_tracing_is_on(
 ) -> None:
     main(
         ["--smoke", "--runs", "1", "--configs", DESIGN],
-        make_llm=answering(FakeLLMClient([ANSWER] * 100)),
+        make_llm=answering(answers()),
         make_analyzers=no_analyzers,
         load_settings=base_settings,
         results_dir=tmp_path,

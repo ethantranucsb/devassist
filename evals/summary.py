@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from devassist.config import DEFAULT_REVIEW_MODEL
 from evals.cases import Difficulty, EvalCase, Kind
 from evals.configurations import BASELINE, DESIGN, Configuration
 from evals.scoring import RunRecord, RunScore, reaches_model, score_run
@@ -82,6 +83,7 @@ class ConfigSummary(BaseModel):
         name: The configuration.
         model: Its model before the escalation round.
         fallback_model: Its model from the escalation round on.
+        review_model: The model of its second review, or ``None`` without one.
         runs: Runs of every case.
         failed_runs: Runs that raised an error.
         recall: Mean recall over planted cases.
@@ -94,6 +96,8 @@ class ConfigSummary(BaseModel):
         adversarial_failures: Failed runs by adversarial case.
         mean_rounds: Mean rounds per run, over answered runs reaching the model.
         escalation_rate: The share of those runs that escalated.
+        reviewed_runs: Runs reaching the model that had a second review.
+        review_flag_rate: The share of those whose review found missed issues.
         mean_cost_usd: Mean cost per snippet, over cases reaching the model.
         total_cost_usd: Every known cost, added up.
         latency_p50_seconds: Median latency over runs reaching the model.
@@ -103,6 +107,7 @@ class ConfigSummary(BaseModel):
     name: str
     model: str
     fallback_model: str
+    review_model: str | None = None
     runs: int
     failed_runs: int
     recall: float | None
@@ -115,6 +120,8 @@ class ConfigSummary(BaseModel):
     adversarial_failures: dict[str, int]
     mean_rounds: float | None
     escalation_rate: float | None
+    reviewed_runs: int = 0
+    review_flag_rate: float | None = None
     mean_cost_usd: float | None
     total_cost_usd: float
     latency_p50_seconds: float | None
@@ -232,10 +239,12 @@ def summarize_config(
     }
     costs = [cost for case in model_cases if (cost := case_cost(scores[case.id])) is not None]
     latencies = [run.latency_seconds for run in model_runs]
+    review_flags = [run.review_flagged for run in model_runs if run.review_flagged is not None]
     return ConfigSummary(
         name=configuration.name,
         model=configuration.model,
         fallback_model=configuration.fallback_model,
+        review_model=DEFAULT_REVIEW_MODEL if configuration.review else None,
         runs=len(all_runs),
         failed_runs=sum(run.failed for run in all_runs),
         recall=_mean_or_none(list(recalls.values())),
@@ -254,6 +263,8 @@ def summarize_config(
         adversarial_failures={case_id: count for case_id, count in failures.items() if count},
         mean_rounds=_mean_or_none([float(run.rounds) for run in answered_runs]),
         escalation_rate=_share([run.escalated for run in answered_runs]),
+        reviewed_runs=len(review_flags),
+        review_flag_rate=_share(review_flags),
         mean_cost_usd=_mean_or_none(costs),
         total_cost_usd=math.fsum(run.cost_usd for run in all_runs if run.cost_usd is not None),
         latency_p50_seconds=percentile(latencies, MEDIAN) if latencies else None,
@@ -632,7 +643,7 @@ def render_report(summary: EvalSummary) -> str:
         f"devassist eval ({summary.label}): {summary.cases} cases x {summary.runs_per_case} runs"
     ]
     header = ["config", "recall", "false alarms", "first try", "verified", "adversarial"]
-    header += ["rounds", "escalated", "cost/snippet", "p50", "p95", "failed"]
+    header += ["rounds", "escalated", "review flagged", "cost/snippet", "p50", "p95", "failed"]
     rows = [
         [
             c.name,
@@ -643,6 +654,7 @@ def render_report(summary: EvalSummary) -> str:
             _percent(c.adversarial_pass_rate),
             "-" if c.mean_rounds is None else f"{c.mean_rounds:.2f}",
             _percent(c.escalation_rate),
+            _percent(c.review_flag_rate),
             _dollars(c.mean_cost_usd),
             _seconds(c.latency_p50_seconds),
             _seconds(c.latency_p95_seconds),
